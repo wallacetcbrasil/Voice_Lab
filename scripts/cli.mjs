@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 const [command = "help", target] = process.argv.slice(2).filter((value) => !value.startsWith("--"));
+const options = process.argv.slice(2).filter((value) => value.startsWith("--"));
 
 function help() {
   console.log(`Voice Lab
 
 Uso:
   voice-lab setup                    detecta, instala e valida todas as ferramentas
-  voice-lab start [--origin=URL]     inicia o Companion; autoriza URL HTTPS/loopback exata
+  voice-lab start [--origin=URL]     inicia o Companion persistente em segundo plano
+  voice-lab start --foreground       mantém logs no terminal até CTRL+C
   voice-lab status                   mostra não instalado / instalado / inicializado
   voice-lab start lmstudio           inicia a API do LM Studio sem carregar modelo
   voice-lab stop lmstudio            descarrega modelos e encerra a API do LM Studio
@@ -22,7 +24,17 @@ if (command === "help" || command === "--help" || command === "-h") {
   const { failures } = await runSetupWizard();
   if (failures.length) process.exitCode = 1;
 } else if (command === "start" && !target) {
-  await import("./companion.mjs");
+  if (options.includes("--foreground")) {
+    await import("./companion.mjs");
+  } else {
+    try {
+      const { startCompanionInBackground } = await import("./companion-launcher.mjs");
+      await startCompanionInBackground(options);
+    } catch (error) {
+      console.error(`Erro: ${error instanceof Error ? error.message : error}`);
+      process.exitCode = 1;
+    }
+  }
 } else if (command === "status" || command === "stop" || (command === "start" && target)) {
   await import("./runtime.mjs");
 } else {

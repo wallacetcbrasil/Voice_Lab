@@ -4,7 +4,9 @@
 
 1. Execute `npm install`.
 2. Execute `npm run setup`; confirme que a fila pula itens já reconhecidos e não inicia modelos.
-3. Execute `npm run companion` e mantenha o terminal aberto.
+3. Execute `voice-lab start`; confirme que o comando retorna somente após a porta responder e que
+   o Companion permanece ativo em segundo plano. Em desenvolvimento, `npm run companion` mantém
+   os logs no terminal.
 4. Abra `http://127.0.0.1:3333`.
 5. Execute `npm run runtime -- status` em outro terminal.
 

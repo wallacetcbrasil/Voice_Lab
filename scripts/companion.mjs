@@ -17,6 +17,8 @@ import {
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = new Set(process.argv.slice(2));
+const companionPort = Number(process.env.PORT || 3333);
+const companionUrl = `http://127.0.0.1:${companionPort}`;
 
 if (args.has("--help")) {
   console.log(`Voice Lab Companion
@@ -27,7 +29,7 @@ Uso:
   voice-lab-companion --setup  instala o que falta e depois inicia
   voice-lab-companion --origin=https://seu-site.vercel.app
 
-Aplicação: http://127.0.0.1:3333`);
+Aplicação: ${companionUrl}`);
   process.exit(0);
 }
 
@@ -65,7 +67,7 @@ try {
 }
 
 console.log("\nVoice Lab Companion");
-console.log("Aplicação: http://127.0.0.1:3333");
+console.log(`Aplicação: ${companionUrl}`);
 console.log(args.has("--setup")
   ? "A instalação será concluída antes de iniciar os bridges."
   : "Iniciando o Companion; os bridges instalados serão validados em paralelo.");
@@ -96,13 +98,13 @@ if (args.has("--setup")) {
   }
 }
 
-if (await online("http://127.0.0.1:3333/")) {
+if (await online(`${companionUrl}/`)) {
   if (requestedOrigin) {
     console.error("O Voice Lab já está inicializado, mas a origem informada não pode ser aplicada ao processo existente.");
     console.error("Execute `voice-lab stop` e inicie novamente com o mesmo `--origin=...`.");
     process.exit(1);
   }
-  console.log("O Voice Lab já está inicializado em http://127.0.0.1:3333");
+  console.log(`O Voice Lab já está inicializado em ${companionUrl}`);
   console.log("Use `voice-lab-runtime stop companion` antes de iniciar outra instância.");
   process.exit(0);
 }
@@ -161,10 +163,12 @@ writeRuntimePid("companion", { pid: process.pid, startedAt: new Date().toISOStri
 await import(pathToFileURL(serverEntry).href);
 
 console.log("\nVoice Lab inicializado.");
-console.log("Abra no navegador: http://127.0.0.1:3333");
+console.log(`Abra no navegador: ${companionUrl}`);
 if (requestedOrigin) console.log(`Origem pública autorizada nesta sessão: ${requestedOrigin}`);
 console.log("Modelos pesados permanecem descarregados até a ação no laboratório correspondente.");
-console.log("Pressione CTRL+C para encerrar o Companion e os bridges gerenciados.\n");
+console.log(process.env.VOICE_LAB_BACKGROUND === "1"
+  ? "Execução persistente em segundo plano. Use `voice-lab stop` para encerrar.\n"
+  : "Pressione CTRL+C para encerrar o Companion e os bridges gerenciados.\n");
 
 void Promise.all(children.map(async ({ id }) => {
   const manifest = engineManifest[id];
@@ -179,10 +183,20 @@ void Promise.all(children.map(async ({ id }) => {
   console.error(`${manifest.label}: não respondeu em ${url}; consulte a saída do processo acima.`);
 }));
 
+let shuttingDown = false;
 function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   for (const { child } of children) child.kill(signal);
   rmSync(runtimePidPath("companion"), { force: true });
 }
 
-process.on("SIGINT", () => { shutdown("SIGINT"); process.exit(0); });
-process.on("SIGTERM", () => { shutdown("SIGTERM"); process.exit(0); });
+function handleSignal(signal) {
+  console.log(`\nEncerrando o Voice Lab após receber ${signal}.`);
+  shutdown(signal);
+  process.exit(0);
+}
+
+process.on("SIGINT", () => handleSignal("SIGINT"));
+process.on("SIGTERM", () => handleSignal("SIGTERM"));
+process.on("exit", () => shutdown("SIGTERM"));

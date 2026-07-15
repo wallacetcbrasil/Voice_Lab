@@ -454,7 +454,7 @@ export function SetupLab() {
       </ResultPanel>
 
       <ResultPanel label="ETAPA 2 · INICIAR O AMBIENTE LEVE">
-        <p>Depois da instalação, inicialize o companion e os bridges em <code>127.0.0.1:3333</code>. Em um checkout local, use <code>npm run companion</code>.</p>
+        <p>Depois da instalação, inicialize o Companion e os bridges em <code>127.0.0.1:3333</code>. O comando público aguarda a aplicação responder e a mantém ativa em segundo plano; use <code>voice-lab stop</code> para encerrar. Em desenvolvimento, <code>npm run companion</code> mantém os logs no terminal.</p>
         <CopyCommand action={BASE_COMPANION_ACTION} />
       </ResultPanel>
 

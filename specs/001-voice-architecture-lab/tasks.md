@@ -93,6 +93,10 @@
 - [x] T047 Add package metadata, privacy exclusions, exact-origin CLI support, security headers, and cross-platform CI
 - [x] T048 Run final end-to-end verification, publish the public GitHub repository, validate the Git package command, and close local ports
 
+## Phase 12: Persistent public start lifecycle
+
+- [x] T049 Add a detached Companion launcher, foreground diagnostic mode, lifecycle regression test, and updated public instructions
+
 ## Dependencies & Execution Order
 
 Setup precedes foundations. US1 and US2 establish the MVP. US3 and US4 depend only on shared

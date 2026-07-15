@@ -159,6 +159,9 @@ memória e instruções para cada integração ausente.
   ao preflight de rede privada e exigir pareamento efêmero em HTTP e WebSocket.
 - **FR-023**: Bridges Python MUST escutar somente em loopback e rejeitar inferência sem uma
   credencial interna efêmera, gerada pelo Companion e nunca entregue ao frontend.
+- **FR-024**: `voice-lab start` MUST aguardar uma sonda real e manter o Companion ativo em segundo
+  plano após o processo intermediário do `npx` terminar; `--foreground` MUST preservar logs e
+  encerramento por `CTRL+C`, e `voice-lab stop` MUST encerrar ambos os modos.
 
 ### Key Entities
 

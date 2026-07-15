@@ -43,6 +43,8 @@ arquivos de voz efêmeros; suporte variável de navegador e runtime explicitamen
 - PASS — bridges de inferência usam credencial interna efêmera e não a expõem ao frontend.
 - PASS — realtime usa transporte, pipeline curto e cancelamento reais; não existe sucesso simulado.
 - PASS — UI responsiva, teclado e `prefers-reduced-motion` entram no acabamento.
+- PASS — o start público desacopla o Companion do processo transitório do npx e valida a porta
+  antes de devolver o prompt; foreground continua explícito para diagnóstico.
 
 ## Project Structure
 

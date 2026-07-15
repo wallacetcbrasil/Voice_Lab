@@ -83,14 +83,16 @@ Para uma interface publicada, autorize **somente a origem exata** antes de inici
 npx --yes --package=github:wallacetcbrasil/Voice_Lab voice-lab start --origin=https://SEU-PROJETO.vercel.app
 ```
 
-O terminal imprime:
+O comando aguarda a sonda real da aplicação e imprime:
 
 ```text
-Abra no navegador: http://127.0.0.1:3333
+Voice Lab inicializado: http://127.0.0.1:3333
 ```
 
-Mantenha esse terminal aberto durante o uso. O comando inicializa a API e apenas os bridges das
-ferramentas instaladas. Ele **não** abre LM Studio, não inicia llama.cpp e não carrega checkpoints.
+O Companion e os bridges continuam ativos em segundo plano, portanto o terminal pode ser fechado.
+Use `voice-lab stop` para encerrá-los. O comando **não** abre LM Studio, não inicia llama.cpp e não
+carrega checkpoints. Para acompanhar a saída continuamente, use `voice-lab start --foreground`;
+nesse modo, `CTRL+C` encerra os processos gerenciados.
 
 ### Estados exibidos no diagnóstico
 
@@ -109,6 +111,7 @@ Use o mesmo prefixo público em todos os exemplos:
 
 ```powershell
 npx --yes --package=github:wallacetcbrasil/Voice_Lab voice-lab status
+npx --yes --package=github:wallacetcbrasil/Voice_Lab voice-lab start --foreground
 npx --yes --package=github:wallacetcbrasil/Voice_Lab voice-lab start lmstudio
 npx --yes --package=github:wallacetcbrasil/Voice_Lab voice-lab stop lmstudio
 npx --yes --package=github:wallacetcbrasil/Voice_Lab voice-lab start llama --hf=ggml-org/Voxtral-Mini-3B-2507-GGUF:Q4_K_M
@@ -308,7 +311,7 @@ O `vercel.json` já define o build Vite e o fallback da SPA:
 1. importe o repositório na Vercel;
 2. publique sem criar backend remoto;
 3. no PC do usuário, execute `voice-lab start --origin=https://URL-EXATA.vercel.app`;
-4. mantenha o terminal aberto durante o uso.
+4. feche o terminal se desejar; o Companion permanece ativo até `voice-lab stop`.
 
 Não use curingas de origem. Preview deployments têm URLs diferentes e precisam ser autorizados
 explicitamente antes do teste.
