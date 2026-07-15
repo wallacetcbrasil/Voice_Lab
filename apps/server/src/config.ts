@@ -71,6 +71,7 @@ export const appConfig = {
   host: "127.0.0.1",
   webOrigins: allowedWebOrigins,
   timeoutMs: Number(process.env.REQUEST_TIMEOUT_MS || 120_000),
+  modelLoadTimeoutMs: Number(process.env.MODEL_LOAD_TIMEOUT_MS || 30 * 60_000),
   maxUploadMb: Number(process.env.MAX_UPLOAD_MB || 50),
   logLimit: Number(process.env.LOG_LIMIT || 500),
   lmStudioBaseUrl: process.env.LM_STUDIO_BASE_URL || "http://localhost:1234/v1",

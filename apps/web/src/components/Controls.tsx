@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, LoaderCircle } from "lucide-react";
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { useEffect, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>;
@@ -40,4 +40,23 @@ export function Toggle({ checked, onChange, label }: { checked: boolean; onChang
 
 export function Range({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step: number; onChange: (value: number) => void }) {
   return <label className="range-field"><span>{label}<strong>{value.toFixed(1)}</strong></span><input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} /></label>;
+}
+
+export function LongOperationNotice({ active, title, detail }: { active: boolean; title: string; detail: string }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!active) { setElapsed(0); return; }
+    const started = Date.now();
+    const update = () => setElapsed(Math.floor((Date.now() - started) / 1000));
+    update();
+    const timer = window.setInterval(update, 1_000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  if (!active) return null;
+  return (
+    <div className="long-operation" role="status" aria-live="polite">
+      <LoaderCircle className="spin" />
+      <div><strong>{title} · {elapsed} s</strong><p>{detail}</p><div className="indeterminate-progress"><span /></div></div>
+    </div>
+  );
 }

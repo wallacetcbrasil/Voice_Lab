@@ -97,6 +97,12 @@
 
 - [x] T049 Add a detached Companion launcher, foreground diagnostic mode, lifecycle regression test, and updated public instructions
 
+## Phase 13: Explicit model loading lifecycle
+
+- [x] T050 Add real LM Studio and Python model load/status endpoints with dedicated long-operation timeouts
+- [x] T051 Block inference until runtime verification and show real elapsed, indeterminate loading states across model-backed labs
+- [x] T052 Update contracts and documentation, run the full build/test suite, and validate the rebuilt Companion
+
 ## Dependencies & Execution Order
 
 Setup precedes foundations. US1 and US2 establish the MVP. US3 and US4 depend only on shared

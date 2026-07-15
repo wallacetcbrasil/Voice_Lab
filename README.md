@@ -15,8 +15,8 @@ do **Voice Lab Companion**, que escuta apenas em `127.0.0.1`.
 - STT do navegador com transcrição parcial/final e diagnóstico de compatibilidade.
 - Chat textual e streaming via LM Studio ou `llama-server` OpenAI-compatible.
 - Voz por turnos: STT → LM Studio → TTS, com medição por fase.
-- Descoberta somente-leitura de modelos de áudio no LM Studio, com escolha explícita de uma única
-  quantização antes de qualquer inferência.
+- Descoberta somente-leitura de modelos de áudio no LM Studio, com escolha e carregamento explícito
+  de uma única quantização antes de qualquer inferência.
 - Modelo multimodal via LM Studio, llama.cpp ou Python/Transformers.
 - RAG local com texto, TXT, Markdown e PDF com camada de texto.
 - Piper, Kokoro, Faster-Whisper, XTTS-v2, OpenVoice V2 e RVC em ambientes Python isolados.
@@ -24,6 +24,20 @@ do **Voice Lab Companion**, que escuta apenas em `127.0.0.1`.
   turnos curtos e interrupção do TTS ao detectar uma nova fala.
 - Comparativo, logs sanitizados, diagnóstico real e três estados para cada ferramenta:
   **não instalada**, **instalada** e **inicializada**.
+- Controles de carga para LM Studio, Kokoro, Faster-Whisper, XTTS, OpenVoice e Transformers, com
+  cronômetro real, confirmação por sonda e inferência bloqueada enquanto o checkpoint não estiver
+  na memória.
+
+## Como o carregamento de modelos funciona
+
+Instalar uma ferramenta não carrega seu modelo. Em cada laboratório que usa checkpoint pesado,
+selecione o modelo e clique em **Carregar modelo**. O Voice Lab espera o runtime concluir, consulta
+o estado real e só então libera o botão de inferência. Isso evita que o primeiro prompt acumule
+carregamento + geração e expire, além de impedir a carga acidental de várias quantizações.
+
+Alguns runtimes não fornecem percentual de carga. Nesses casos a interface mostra animação
+indeterminada e o tempo decorrido medido, sem fabricar uma porcentagem. O primeiro uso também pode
+baixar arquivos oficiais e, portanto, demorar mais que os usos seguintes.
 
 ## Arquitetura publicada
 
@@ -157,11 +171,11 @@ runtime em vez de deduzir capacidade pelo nome.
 3. Inicie a API com `voice-lab start lmstudio` ou pelo botão oficial do aplicativo.
 4. A interface consulta os metadados locais em modo somente-leitura.
 5. Escolha um modelo que declare áudio e exatamente uma quantização.
-6. Confirme o possível carregamento e execute o teste.
+6. Clique em **Carregar modelo**, aguarde a confirmação real e execute o teste.
 
-O Voice Lab não envia prompts durante a descoberta e não chama um endpoint de carga em massa. Se
-uma variante já estiver carregada, ela é priorizada. Caso contrário, o primeiro prompt pode fazer o
-LM Studio carregar somente a variante confirmada, conforme a configuração JIT do próprio runtime.
+O Voice Lab não envia prompts durante a descoberta e nunca chama uma carga em massa. Se uma
+variante já estiver carregada, ela é priorizada. Caso contrário, o botão chama o endpoint nativo de
+carga para uma única variante e o chat permanece bloqueado até a API confirmar a instância.
 
 Documentação: [servidor local do LM Studio](https://lmstudio.ai/docs/developer/core/server).
 
@@ -187,8 +201,9 @@ Builds manuais continuam suportados; consulte a
 ## Python/Transformers
 
 O instalador prepara as bibliotecas em um ambiente isolado e o Companion inicia o bridge em
-`127.0.0.1:8106`. O checkpoint não é baixado nem carregado nesse momento. Na primeira inferência, o
-adapter usa `AutoProcessor` e a classe de geração compatível com o modelo escolhido.
+`127.0.0.1:8106`. O checkpoint não é baixado nem carregado nesse momento. No laboratório, clique em
+**Carregar modelo**; o adapter então usa `AutoProcessor` e a classe de geração compatível antes de
+liberar a inferência.
 
 As rotas públicas são:
 
@@ -324,7 +339,10 @@ GET    /api/health
 GET    /api/setup/status
 GET    /api/lmstudio/models
 GET    /api/lmstudio/audio-models
+POST   /api/lmstudio/models/load
 POST   /api/lmstudio/chat
+POST   /api/models/status
+POST   /api/models/load
 GET    /api/llama-cpp/diagnose
 POST   /api/rag/upload
 POST   /api/rag/query
@@ -368,7 +386,8 @@ exige o mesmo token e valida a origem.
 |---|---|---|
 | `PAIRING_FAILED` | origem publicada não autorizada ou Companion parado | defina `WEB_ORIGINS` com a URL exata e reinicie `voice-lab start` |
 | `RUNTIME_OFFLINE` | LM Studio/llama-server parado | inicie somente o runtime do laboratório |
-| modelo não carregado | ferramenta inicializada, checkpoint ausente/descarregado | escolha o modelo no laboratório |
+| modelo não carregado | ferramenta inicializada, checkpoint ausente/descarregado | escolha o modelo, clique em **Carregar modelo** e aguarde a confirmação |
+| carregamento demora vários minutos | download inicial, leitura dos pesos ou alocação de RAM/VRAM | mantenha o Companion aberto; o cronômetro continua ativo e usa timeout dedicado |
 | `PYTHON_BACKEND_OFFLINE` | bridge não instalado ou não iniciado | rode `voice-lab setup`, depois `voice-lab start` |
 | microfone `not-allowed` | permissão bloqueada | libere o microfone para a origem atual |
 | PDF vazio | não há camada de texto | aplique OCR antes do upload |

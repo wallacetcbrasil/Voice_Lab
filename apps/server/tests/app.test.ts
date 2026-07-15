@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app.js";
 import { clearRag } from "../src/services/ragService.js";
-import { normalizeAudioModels } from "../src/services/lmStudioClient.js";
+import { loadLmStudioModel, normalizeAudioModels } from "../src/services/lmStudioClient.js";
 import { closeSession, connectSession, createSession, registerChunk } from "../src/realtime/realtimeService.js";
 
 const testInternalToken = "voice-lab-test-internal-token";
@@ -54,6 +54,80 @@ describe("Voice Lab API", () => {
     });
     expect(response.body.data.services).toHaveLength(8);
     expect(response.body.data.services.every((service: { stage?: string }) => Boolean(service.stage))).toBe(true);
+  });
+
+  it("loads one selected LM Studio audio model before inference and verifies the instance", async () => {
+    const selected = {
+      type: "llm",
+      key: "ggml-org/Voxtral-Mini-3B-2507-GGUF@q4_k_m",
+      display_name: "Voxtral Mini 3B",
+      params_string: "3B",
+      size_bytes: 2_000_000_000,
+      quantization: { name: "Q4_K_M" },
+      loaded_instances: [],
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ models: [selected] }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "loaded", instance_id: "voxtral-q4", load_time_seconds: 4.2 }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ models: [{ ...selected, loaded_instances: [{ id: "voxtral-q4" }] }] }), { status: 200, headers: { "content-type": "application/json" } }));
+    try {
+      const result = await loadLmStudioModel("http://localhost:1234/v1", selected.key);
+      expect(result).toMatchObject({ model: selected.key, loaded: true, instanceId: "voxtral-q4" });
+      expect(String(fetchMock.mock.calls[1]?.[0])).toBe("http://localhost:1234/api/v1/models/load");
+      expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({ model: selected.key });
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it("refuses to load another LM Studio model while a different instance is active", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({
+      models: [
+        { type: "llm", key: "ggml-org/Voxtral-Mini-3B-2507-GGUF@q4_k_m", display_name: "Voxtral", loaded_instances: [] },
+        { type: "llm", key: "publisher/another-model@q4", display_name: "Outro", loaded_instances: [{ id: "other-instance" }] },
+      ],
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    try {
+      await expect(loadLmStudioModel("http://localhost:1234/v1", "ggml-org/Voxtral-Mini-3B-2507-GGUF@q4_k_m"))
+        .rejects.toMatchObject({ code: "OTHER_MODEL_ALREADY_LOADED" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it("rejects unsupported Python model loaders before contacting a bridge", async () => {
+    const response = await request(app)
+      .post("/api/models/load")
+      .set("X-Voice-Lab-Token", token)
+      .send({ engine: "unknown" });
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("MODEL_ENGINE_INVALID");
+  });
+
+  it("forwards model load options to the selected isolated Python bridge", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({
+      engine: "kokoro",
+      state: "loaded",
+      configured: true,
+      loaded: true,
+      model: "hexgrad/Kokoro-82M",
+      progressAvailable: false,
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    try {
+      await request(app)
+        .post("/api/models/load")
+        .set("X-Voice-Lab-Token", token)
+        .send({ engine: "kokoro", options: { language: "pt-br" } })
+        .expect(200);
+      expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://127.0.0.1:8101/api/models/load");
+      expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+        engine: "kokoro",
+        options: { language: "pt-br" },
+      });
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 
   it("indexes and retrieves lexical RAG context", async () => {

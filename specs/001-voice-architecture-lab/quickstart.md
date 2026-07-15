@@ -23,11 +23,22 @@ Esperado: síntese funciona; STT transcreve ou explica incompatibilidade.
 ## LM Studio
 
 1. Execute `npm run runtime -- start lmstudio`.
-2. Abra **LM Studio Chat + TTS**, selecione um modelo/quantização compatível e envie
-   "Responda apenas: funcionando".
-3. Use o botão de leitura e depois execute `npm run runtime -- stop lmstudio`.
+2. Abra **LM Studio Chat + TTS**, selecione um modelo/quantização compatível e clique em
+   **Carregar modelo**. Observe o tempo real até a sonda confirmar a instância.
+3. Somente depois da confirmação, envie "Responda apenas: funcionando".
+4. Use o botão de leitura e depois execute `npm run runtime -- stop lmstudio`.
 
-Esperado: texto vem do runtime; áudio vem explicitamente do navegador; tempos são registrados.
+Esperado: nenhuma inferência é liberada antes da carga; a animação não inventa percentual; texto
+vem do runtime, áudio vem explicitamente do navegador e os tempos são registrados.
+
+## Modelos dos bridges Python
+
+1. Abra STT/Whisper, Kokoro, XTTS, OpenVoice ou Transformers multimodal.
+2. Clique em **Carregar modelo** no laboratório escolhido.
+3. Aguarde o estado **carregado** antes de executar a inferência.
+
+Esperado: apenas o checkpoint escolhido é inicializado; o primeiro download pode levar minutos e
+o tempo continua visível sem expirar no timeout comum da API.
 
 ## RAG
 

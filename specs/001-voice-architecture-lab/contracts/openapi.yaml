@@ -21,6 +21,33 @@ paths:
         - { in: query, name: baseUrl, schema: { type: string } }
       responses:
         "200": { description: Famílias de áudio agrupadas por quantização e estado carregado; operação somente-leitura }
+  /api/lmstudio/models/load:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model]
+              properties:
+                baseUrl: { type: string }
+                model: { type: string }
+      responses:
+        "200": { description: Instância carregada e verificada pela API nativa do LM Studio }
+        "409": { description: Outra instância já está carregada ou carga em andamento }
+        "504": { description: Timeout dedicado de carregamento }
+  /api/models/status:
+    post:
+      responses:
+        "200": { description: Estado real do checkpoint no bridge Python selecionado }
+        "400": { description: Motor não oferece pré-carregamento explícito }
+  /api/models/load:
+    post:
+      responses:
+        "200": { description: Checkpoint carregado e confirmado pelo bridge Python selecionado }
+        "400": { description: Motor não oferece pré-carregamento explícito }
+        "504": { description: Timeout dedicado de carregamento }
   /api/llama-cpp/diagnose:
     get:
       parameters:

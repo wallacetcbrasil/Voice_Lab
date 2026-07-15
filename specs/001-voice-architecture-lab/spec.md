@@ -162,6 +162,9 @@ memória e instruções para cada integração ausente.
 - **FR-024**: `voice-lab start` MUST aguardar uma sonda real e manter o Companion ativo em segundo
   plano após o processo intermediário do `npx` terminar; `--foreground` MUST preservar logs e
   encerramento por `CTRL+C`, e `voice-lab stop` MUST encerrar ambos os modos.
+- **FR-025**: Checkpoints pesados MUST ser carregados apenas por uma ação explícita do usuário. A
+  interface MUST bloquear inferência até uma sonda confirmar o modelo em memória, mostrar tempo
+  decorrido real durante carregamento e MUST NOT inventar percentual quando o runtime não o expõe.
 
 ### Key Entities
 
@@ -172,6 +175,8 @@ memória e instruções para cada integração ausente.
 - **VoiceSample**: Referência temporária, consentimento, formato, duração e política de exclusão.
 - **LogEntry**: Evento sanitizado de requisição, erro, status ou medição.
 - **RealtimeSession**: Sessão efêmera, blocos recebidos, VAD, turnos e métricas.
+- **ModelLoadOperation**: Operação de carregamento explícita, runtime, checkpoint, estado observado,
+  início, duração e disponibilidade real de progresso.
 
 ## Success Criteria *(mandatory)*
 

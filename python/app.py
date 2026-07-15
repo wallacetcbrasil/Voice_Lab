@@ -15,6 +15,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
@@ -29,6 +31,8 @@ ACTIVE_ENGINE = os.getenv("VOICE_LAB_ACTIVE_ENGINE", "all").strip().lower()
 MAX_UPLOAD_BYTES = int(os.getenv("VOICE_LAB_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 INTERNAL_TOKEN = os.getenv("VOICE_LAB_INTERNAL_TOKEN", "")
 INTERNAL_TOKEN_HEADER = "x-voice-lab-internal-token"
+MODEL_LOAD_LOCK = threading.Lock()
+MODEL_LOAD_STATE: dict[str, Any] = {"state": "idle", "startedAt": None, "completedAt": None, "error": None}
 
 
 @app.middleware("http")
@@ -255,6 +259,97 @@ def health(deep: bool = False):
         "deepVerification": deep,
         "engines": engines,
     }
+
+
+class ModelControlRequest(BaseModel):
+    engine: str
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
+def model_control_payload(engine: str) -> dict[str, Any]:
+    status = _model_status(engine)
+    return {
+        "engine": engine,
+        "state": "loaded" if status.get("loaded") else MODEL_LOAD_STATE["state"],
+        "configured": bool(status.get("configured")),
+        "loaded": bool(status.get("loaded")),
+        "model": status.get("model"),
+        "models": status.get("models"),
+        "path": status.get("path"),
+        "startedAt": MODEL_LOAD_STATE["startedAt"],
+        "completedAt": MODEL_LOAD_STATE["completedAt"],
+        "error": MODEL_LOAD_STATE["error"],
+        "progressAvailable": False,
+    }
+
+
+@app.post("/api/models/status")
+def model_status(request: ModelControlRequest):
+    engine = request.engine.strip().lower()
+    require_engine(engine)
+    return model_control_payload(engine)
+
+
+@app.post("/api/models/load")
+def load_model(request: ModelControlRequest):
+    engine = request.engine.strip().lower()
+    require_engine(engine)
+    if engine not in {"kokoro", "whisper", "xtts", "openvoice", "transformers"}:
+        raise HTTPException(400, {"code": "MODEL_ENGINE_INVALID", "message": f"O motor {engine} não oferece preload explícito."})
+    if not dependency_available(engine):
+        not_ready(engine, "Execute o comando único de instalação na tela Instalação e Diagnóstico.")
+    current = _model_status(engine)
+    if current.get("loaded"):
+        return {**model_control_payload(engine), "alreadyLoaded": True, "elapsedMs": 0}
+    if not MODEL_LOAD_LOCK.acquire(blocking=False):
+        raise HTTPException(
+            409,
+            {
+                "code": "MODEL_LOAD_IN_PROGRESS",
+                "message": "Este bridge já está carregando um checkpoint.",
+                "hint": "Aguarde a operação atual; uma segunda cópia não será iniciada.",
+            },
+        )
+
+    started = time.perf_counter()
+    MODEL_LOAD_STATE.update({"state": "loading", "startedAt": time.time(), "completedAt": None, "error": None})
+    try:
+        if engine == "kokoro":
+            kokoro_pipeline(str(request.options.get("language") or "pt-br"))
+        elif engine == "whisper":
+            whisper_model()
+        elif engine == "xtts":
+            xtts_model()
+        elif engine == "openvoice":
+            openvoice_converter()
+            language = str(request.options.get("language") or "en").lower()
+            language_code = {"en": "EN", "es": "ES", "fr": "FR", "zh": "ZH", "ja": "JP", "ko": "KR"}.get(language, "EN")
+            melo_tts(language_code)
+        elif engine == "transformers":
+            voxtral_components()
+        MODEL_LOAD_STATE.update({"state": "loaded", "completedAt": time.time()})
+        return {
+            **model_control_payload(engine),
+            "loaded": True,
+            "state": "loaded",
+            "alreadyLoaded": False,
+            "elapsedMs": round((time.perf_counter() - started) * 1000),
+        }
+    except HTTPException:
+        MODEL_LOAD_STATE.update({"state": "error", "completedAt": time.time(), "error": "O bridge recusou o carregamento."})
+        raise
+    except Exception as error:
+        MODEL_LOAD_STATE.update({"state": "error", "completedAt": time.time(), "error": f"{type(error).__name__}: {error}"})
+        raise HTTPException(
+            500,
+            {
+                "code": "MODEL_LOAD_ERROR",
+                "message": f"{type(error).__name__}: {error}",
+                "hint": "Verifique download, licença do checkpoint, RAM/VRAM e o log do bridge local.",
+            },
+        ) from error
+    finally:
+        MODEL_LOAD_LOCK.release()
 
 
 async def save_upload(audio: UploadFile, default_name: str) -> str:

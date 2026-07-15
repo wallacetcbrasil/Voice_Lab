@@ -92,7 +92,8 @@ temp/{uploads,outputs,voices}/
 
 **Structure Decision**: npm workspaces mantêm cliente e servidor independentes. O frontend pode
 ser publicado sem backend remoto; o Companion local concentra pareamento, diagnóstico e runtimes.
-Cada motor Python usa um ambiente separado e carregamento preguiçoso de checkpoint.
+Cada motor Python usa um ambiente separado. Checkpoints são carregados por controle explícito e
+confirmados por sonda antes da inferência; operações longas usam timeout próprio e estado observável.
 
 ## Complexity Tracking
 
@@ -103,4 +104,5 @@ Cada motor Python usa um ambiente separado e carregamento preguiçoso de checkpo
 ## Post-Design Constitution Check
 
 PASS. Contratos incluem erros acionáveis, consentimento e exclusão; dados continuam locais;
-adapters opcionais não impedem os laboratórios base; verificação contempla build e testes.
+adapters opcionais não impedem os laboratórios base; nenhum checkpoint pesado é carregado sem ação
+do usuário; verificação contempla build e testes.

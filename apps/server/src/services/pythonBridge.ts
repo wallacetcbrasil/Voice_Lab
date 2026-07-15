@@ -21,6 +21,12 @@ function bridgeBaseUrl(engine: PythonBridgeEngine) {
   return appConfig.pythonBaseUrls[engine].replace(/\/$/, "");
 }
 
+function requestTimeout(engine: PythonBridgeEngine) {
+  return (["xtts", "openvoice", "rvc", "transformers"] as PythonBridgeEngine[]).includes(engine)
+    ? appConfig.modelLoadTimeoutMs
+    : appConfig.timeoutMs;
+}
+
 function bridgeError(error: unknown, engine: PythonBridgeEngine) {
   if (error instanceof AppError) return error;
   const baseUrl = bridgeBaseUrl(engine);
@@ -53,7 +59,7 @@ export async function pythonJson(engineOrEndpoint: PythonBridgeEngine | string, 
       method: "POST",
       headers: { "content-type": "application/json", ...pythonBridgeAuthHeaders() },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(appConfig.timeoutMs),
+      signal: AbortSignal.timeout(requestTimeout(engine)),
     });
     const type = response.headers.get("content-type") || "";
     if (!response.ok) {
@@ -68,6 +74,32 @@ export async function pythonJson(engineOrEndpoint: PythonBridgeEngine | string, 
     if (type.startsWith("audio/")) return { audio: Buffer.from(await response.arrayBuffer()), contentType: type };
     return { json: await response.json() };
   } catch (error) {
+    throw bridgeError(error, engine);
+  }
+}
+
+export async function pythonModelControl(engine: PythonBridgeEngine, endpoint: "/api/models/status" | "/api/models/load", body: unknown) {
+  try {
+    const response = await fetch(`${bridgeBaseUrl(engine)}${endpoint}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...pythonBridgeAuthHeaders() },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(appConfig.modelLoadTimeoutMs),
+    });
+    const data = await response.json().catch(() => ({})) as { error?: { code?: string; message?: string; hint?: string } };
+    if (!response.ok) {
+      throw new AppError(
+        response.status,
+        data.error?.code || "PYTHON_MODEL_ERROR",
+        data.error?.message || `Backend Python respondeu HTTP ${response.status}.`,
+        data.error?.hint,
+      );
+    }
+    return data;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new AppError(504, "PYTHON_MODEL_LOAD_TIMEOUT", `O carregamento do modelo de ${engine} excedeu o limite dedicado.`, "Verifique download, RAM/VRAM e logs do bridge antes de tentar novamente.");
+    }
     throw bridgeError(error, engine);
   }
 }
@@ -116,7 +148,7 @@ export async function pythonMultipart(
       method: "POST",
       headers: pythonBridgeAuthHeaders(),
       body: form,
-      signal: AbortSignal.timeout(appConfig.timeoutMs),
+      signal: AbortSignal.timeout(requestTimeout(engine)),
     });
     const type = response.headers.get("content-type") || "";
     if (!response.ok) {

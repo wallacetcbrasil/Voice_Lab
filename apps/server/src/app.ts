@@ -8,7 +8,7 @@ import { appConfig, isAllowedWebOrigin, rootDir } from "./config.js";
 import { AppError, asyncRoute, errorMiddleware } from "./errors.js";
 import { addLog, clearLogs, getLogs, requestLogger } from "./logger.js";
 import { getCapabilities } from "./services/capabilityService.js";
-import { chatCompletion, listAudioModels, listModels, streamChat, type ChatInput } from "./services/lmStudioClient.js";
+import { chatCompletion, listAudioModels, listModels, loadLmStudioModel, streamChat, type ChatInput } from "./services/lmStudioClient.js";
 import { addDocument, clearRag, queryRag, ragStats } from "./services/ragService.js";
 import { kokoro, openVoice, requireConsent, rvc, whisper, xtts } from "./services/audioServices.js";
 import { synthesizePiper } from "./services/piperService.js";
@@ -17,6 +17,7 @@ import { createSession, realtimeStats } from "./realtime/realtimeService.js";
 import { diagnoseLlamaCpp } from "./services/llamaCppService.js";
 import { getSetupStatus } from "./services/setupService.js";
 import { isValidCompanionToken, issueCompanionToken } from "./companionAuth.js";
+import { loadPythonModel, pythonModelStatus } from "./services/modelLifecycleService.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -106,6 +107,18 @@ export function createApp() {
 
   app.get("/api/lmstudio/audio-models", asyncRoute(async (req, res) => {
     res.json({ ok: true, data: await listAudioModels(String(req.query.baseUrl || appConfig.lmStudioBaseUrl)) });
+  }));
+
+  app.post("/api/lmstudio/models/load", asyncRoute(async (req, res) => {
+    res.json({ ok: true, data: await loadLmStudioModel(String(req.body.baseUrl || appConfig.lmStudioBaseUrl), String(req.body.model || "")) });
+  }));
+
+  app.post("/api/models/status", asyncRoute(async (req, res) => {
+    res.json({ ok: true, data: await pythonModelStatus(req.body.engine) });
+  }));
+
+  app.post("/api/models/load", asyncRoute(async (req, res) => {
+    res.json({ ok: true, data: await loadPythonModel(req.body.engine, req.body.options || {}) });
   }));
 
   app.get("/api/llama-cpp/diagnose", asyncRoute(async (req, res) => {

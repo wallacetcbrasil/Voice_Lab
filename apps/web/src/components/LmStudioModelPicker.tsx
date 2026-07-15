@@ -1,4 +1,4 @@
-import { Check, Database, HardDrive, RefreshCw, ShieldAlert } from "lucide-react";
+import { Check, Database, Download, HardDrive, LoaderCircle, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../services/apiClient";
 import { Button, Field, Select, StatusMessage } from "./Controls";
@@ -42,18 +42,21 @@ export function LmStudioModelPicker({
   const [data, setData] = useState<DiscoveryPayload>();
   const [familyId, setFamilyId] = useState("");
   const [variantId, setVariantId] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingModel, setLoadingModel] = useState(false);
+  const [loadStartedAt, setLoadStartedAt] = useState<number>();
+  const [loadElapsed, setLoadElapsed] = useState(0);
+  const [loadTime, setLoadTime] = useState<number>();
   const [error, setError] = useState("");
 
   const family = useMemo(() => data?.models.find((model) => model.familyId === familyId), [data, familyId]);
   const variant = useMemo(() => family?.variants.find((item) => item.id === variantId), [family, variantId]);
 
-  const publish = useCallback((nextVariant: AudioModelVariant | undefined, nextConfirmed: boolean) => {
+  const publish = useCallback((nextVariant: AudioModelVariant | undefined) => {
     if (!nextVariant) return onSelection(null);
     onSelection({
       modelId: nextVariant.id,
-      ready: nextVariant.loaded || nextConfirmed,
+      ready: nextVariant.loaded,
       loaded: nextVariant.loaded,
       sizeBytes: nextVariant.sizeBytes,
     });
@@ -68,8 +71,8 @@ export function LmStudioModelPicker({
       nextFamily.variants[0];
     setFamilyId(nextFamily.familyId);
     setVariantId(nextVariant?.id || "");
-    setConfirmed(Boolean(nextVariant?.loaded));
-    publish(nextVariant, Boolean(nextVariant?.loaded));
+    setLoadTime(undefined);
+    publish(nextVariant);
   };
 
   const discover = useCallback(async () => {
@@ -85,7 +88,6 @@ export function LmStudioModelPicker({
       else {
         setFamilyId("");
         setVariantId("");
-        setConfirmed(false);
       }
     } catch (error) {
       setData(undefined);
@@ -109,13 +111,39 @@ export function LmStudioModelPicker({
   const handleVariant = (nextVariantId: string) => {
     const nextVariant = family?.variants.find((item) => item.id === nextVariantId);
     setVariantId(nextVariantId);
-    setConfirmed(Boolean(nextVariant?.loaded));
-    publish(nextVariant, Boolean(nextVariant?.loaded));
+    setLoadTime(undefined);
+    publish(nextVariant);
   };
 
-  const confirm = () => {
-    setConfirmed(true);
-    publish(variant, true);
+  useEffect(() => {
+    if (!loadingModel || !loadStartedAt) return;
+    const update = () => setLoadElapsed(Math.floor((Date.now() - loadStartedAt) / 1000));
+    update();
+    const timer = window.setInterval(update, 1_000);
+    return () => window.clearInterval(timer);
+  }, [loadStartedAt, loadingModel]);
+
+  const loadSelected = async () => {
+    if (!variant || loadingModel) return;
+    setLoadingModel(true);
+    setLoadStartedAt(Date.now());
+    setLoadElapsed(0);
+    setLoadTime(undefined);
+    setError("");
+    onSelection(null);
+    try {
+      const response = await api<{ data: { loaded: boolean; elapsedMs: number; loadTimeSeconds?: number } }>("/api/lmstudio/models/load", {
+        method: "POST",
+        body: JSON.stringify({ baseUrl, model: variant.id }),
+      });
+      const measuredLoadTime = response.data.loadTimeSeconds ?? response.data.elapsedMs / 1000;
+      await discover();
+      setLoadTime(measuredLoadTime);
+    } catch (error) {
+      setError(error instanceof ApiError && error.hint ? `${error.message} — ${error.hint}` : error instanceof Error ? error.message : "Falha ao carregar o modelo.");
+    } finally {
+      setLoadingModel(false);
+    }
   };
 
   return (
@@ -126,7 +154,7 @@ export function LmStudioModelPicker({
           <h3>Modelo de áudio e quantização</h3>
           <p>A consulta lê metadados locais e não carrega nenhum peso na memória.</p>
         </div>
-        <Button variant="secondary" busy={loading} onClick={discover}><RefreshCw size={15} /> Atualizar lista</Button>
+        <Button variant="secondary" busy={loading} disabled={loadingModel} onClick={discover}><RefreshCw size={15} /> Atualizar lista</Button>
       </div>
 
       {error && <StatusMessage title="Não foi possível pesquisar o LM Studio">{error}</StatusMessage>}
@@ -145,7 +173,7 @@ export function LmStudioModelPicker({
           </div>
           <div className="form-grid">
             <Field label="Modelo compatível com áudio">
-              <Select value={familyId} onChange={(event) => handleFamily(event.target.value)}>
+              <Select value={familyId} disabled={loadingModel} onChange={(event) => handleFamily(event.target.value)}>
                 {data.models.map((model) => (
                   <option value={model.familyId} key={model.familyId}>
                     {model.displayName} · {model.params} {model.variants.some((item) => item.loaded) ? "· CARREGADO" : ""}
@@ -154,7 +182,7 @@ export function LmStudioModelPicker({
               </Select>
             </Field>
             <Field label="Quantização disponível">
-              <Select value={variantId} onChange={(event) => handleVariant(event.target.value)}>
+              <Select value={variantId} disabled={loadingModel} onChange={(event) => handleVariant(event.target.value)}>
                 {family?.variants.map((item) => (
                   <option value={item.id} key={item.id}>
                     {item.quantization} · {item.sizeLabel} {item.loaded ? "· CARREGADA" : ""}
@@ -165,18 +193,27 @@ export function LmStudioModelPicker({
           </div>
 
           {variant?.loaded ? (
-            <div className="model-load-state loaded"><Check size={17} /><div><strong>Já está carregado no LM Studio</strong><p>O Voice Lab usará a instância existente: <code>{variant.id}</code>.</p></div></div>
+            <div className="model-load-state loaded"><Check size={17} /><div><strong>Já está carregado no LM Studio</strong><p>O Voice Lab usará a instância existente: <code>{variant.id}</code>.</p></div>{loadTime !== undefined && <span>{loadTime.toFixed(1)} s</span>}</div>
+          ) : loadingModel ? (
+            <div className="model-load-state loading">
+              <LoaderCircle className="spin" size={19} />
+              <div>
+                <strong>Carregando a quantização selecionada · {loadElapsed} s</strong>
+                <p>O LM Studio está lendo os pesos e alocando RAM/VRAM. A API de carregamento não fornece percentual; o tempo exibido é medido de verdade.</p>
+                <div className="indeterminate-progress" aria-label={`Modelo carregando há ${loadElapsed} segundos`}><span /></div>
+              </div>
+            </div>
           ) : (
             <div className="model-load-state pending">
-              <ShieldAlert size={19} />
+              <Download size={19} />
               <div>
-                <strong>{confirmed ? "Quantização confirmada" : "Confirme antes de permitir inferência"}</strong>
+                <strong>Quantização selecionada, ainda fora da memória</strong>
                 <p>
-                  O primeiro prompt pode fazer o LM Studio carregar somente <code>{variant?.id}</code>
-                  {variant?.sizeLabel ? ` (${variant.sizeLabel})` : ""}. A pesquisa não carregou nenhum modelo.
+                  Carregue explicitamente somente <code>{variant?.id}</code>
+                  {variant?.sizeLabel ? ` (${variant.sizeLabel})` : ""}. O chat ficará bloqueado até a sonda confirmar a instância.
                 </p>
               </div>
-              {!confirmed && <Button onClick={confirm}>Confirmar esta quantização</Button>}
+              <Button onClick={loadSelected}><Download size={15} /> Carregar modelo</Button>
             </div>
           )}
         </>

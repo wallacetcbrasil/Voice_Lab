@@ -1,12 +1,13 @@
 import { AudioWaveform, Eraser, FileAudio, ShieldCheck, Sparkles, Volume2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { LabFrame } from "../components/LabFrame";
-import { Button, Field, Input, Metric, Range, ResultPanel, Select, StatusMessage, Textarea, Toggle } from "../components/Controls";
+import { Button, Field, Input, LongOperationNotice, Metric, Range, ResultPanel, Select, StatusMessage, Textarea, Toggle } from "../components/Controls";
 import { labById } from "./catalog";
 import { ApiError, api, playBlob } from "../services/apiClient";
 import { speak } from "../services/browserTtsClient";
 import { useExperiments } from "../state/ExperimentStore";
 import { AudioInputGuide } from "../components/AudioInputGuide";
+import { ModelLoadControl } from "../components/ModelLoadControl";
 
 function LocalTtsLab({ engine }: { engine: "piper" | "kokoro" }) {
   const lab = labById[engine];
@@ -15,6 +16,7 @@ function LocalTtsLab({ engine }: { engine: "piper" | "kokoro" }) {
   const [language, setLanguage] = useState("pt-br");
   const [speed, setSpeed] = useState(1);
   const [busy, setBusy] = useState(false);
+  const [modelReady, setModelReady] = useState(engine === "piper");
   const [error, setError] = useState("");
   const [audioUrl, setAudioUrl] = useState("");
   const [generationMs, setGenerationMs] = useState<number>();
@@ -61,10 +63,12 @@ function LocalTtsLab({ engine }: { engine: "piper" | "kokoro" }) {
           <Field label="Idioma"><Select value={language} onChange={(event) => setLanguage(event.target.value)}><option value="pt-br">Português (teste)</option><option value="en-us">English</option><option value="es">Español</option></Select></Field>
         ) : <Range label="Velocidade" value={speed} min={0.6} max={1.6} step={0.1} onChange={setSpeed} />}
       </div>
+      {engine === "kokoro" && <ModelLoadControl engine="kokoro" label="Kokoro-82M" options={{ language }} onReady={setModelReady} />}
       <div className="action-row">
-        <Button onClick={generate} busy={busy}><AudioWaveform size={16} /> Gerar com {engine === "piper" ? "Piper" : "Kokoro"}</Button>
+        <Button onClick={generate} busy={busy} disabled={!modelReady}><AudioWaveform size={16} /> Gerar com {engine === "piper" ? "Piper" : "Kokoro"}</Button>
         <Button variant="secondary" onClick={browserCompare}><Volume2 size={16} /> Comparar navegador</Button>
       </div>
+      <LongOperationNotice active={busy} title={engine === "piper" ? "Sintetizando com Piper" : "Gerando fala com Kokoro"} detail="O tempo exibido é medido no navegador até o backend devolver o áudio completo." />
       {error && <StatusMessage title={`${engine === "piper" ? "Piper" : "Kokoro"} não disponível`}>{error}</StatusMessage>}
       <div className="metric-row">
         <Metric label="Geração local" value={generationMs ? `${generationMs} ms` : "—"} />
@@ -87,12 +91,13 @@ function VoiceTransformLab({ mode }: { mode: VoiceMode }) {
   const [file, setFile] = useState<File>();
   const [duration, setDuration] = useState<number>();
   const [text, setText] = useState("Este teste utiliza uma voz com autorização explícita.");
-  const [language, setLanguage] = useState("pt");
+  const [language, setLanguage] = useState(mode === "openvoice" ? "en" : "pt");
   const [emotion, setEmotion] = useState("neutro");
   const [rhythm, setRhythm] = useState(1);
   const [accent, setAccent] = useState("padrão");
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [modelReady, setModelReady] = useState(mode === "rvc");
   const [error, setError] = useState("");
   const [audioUrl, setAudioUrl] = useState("");
   const [elapsed, setElapsed] = useState<number>();
@@ -143,6 +148,14 @@ function VoiceTransformLab({ mode }: { mode: VoiceMode }) {
   return (
     <LabFrame lab={lab}>
       <div className="consent-banner"><ShieldCheck size={24} /><div><strong>Use apenas sua própria voz ou voz com autorização explícita.</strong><p>Não há presets de pessoas públicas. A amostra não deve ser enviada a serviços externos.</p></div></div>
+      {mode !== "rvc" && (
+        <ModelLoadControl
+          engine={mode}
+          label={mode === "xtts" ? "XTTS-v2" : "OpenVoice V2 + MeloTTS"}
+          options={mode === "openvoice" ? { language } : {}}
+          onReady={setModelReady}
+        />
+      )}
       <AudioInputGuide kind={mode === "rvc" ? "input" : "reference"} onRecorded={setFile} />
       <div className="voice-upload">
         <FileAudio size={32} />
@@ -157,10 +170,11 @@ function VoiceTransformLab({ mode }: { mode: VoiceMode }) {
       {mode === "openvoice" && <><div className="range-grid"><Range label="Ritmo" value={rhythm} min={0.7} max={1.4} step={0.1} onChange={setRhythm} /><Field label="Sotaque"><Input value={accent} onChange={(event) => setAccent(event.target.value)} /></Field></div><p className="footnote">Pausa e entonação dependem do checkpoint/backend; controles não suportados são reportados pelo adapter.</p></>}
       <Toggle checked={consent} onChange={setConsent} label="Confirmo que a voz é minha ou tenho autorização explícita para usá-la." />
       <div className="action-row">
-        <Button onClick={run} busy={busy} disabled={!file || !consent}><Sparkles size={16} /> {mode === "rvc" ? "Converter voz" : mode === "xtts" ? "Gerar voz clonada" : "Gerar timbre/estilo"}</Button>
+        <Button onClick={run} busy={busy} disabled={!file || !consent || !modelReady}><Sparkles size={16} /> {mode === "rvc" ? "Converter voz" : mode === "xtts" ? "Gerar voz clonada" : "Gerar timbre/estilo"}</Button>
         <Button variant="secondary" onClick={deleteSamples}><Eraser size={15} /> Apagar amostras</Button>
         <Metric label="Geração" value={elapsed ? `${elapsed} ms` : "—"} />
       </div>
+      <LongOperationNotice active={busy} title={mode === "rvc" ? "Convertendo com RVC" : "Gerando áudio com o modelo carregado"} detail={mode === "rvc" ? "O RVC carrega o checkpoint dentro do processo de conversão; o tempo real continua visível e usa um limite dedicado de 15 minutos." : "O checkpoint já foi preparado; esta etapa mede somente processamento e geração do áudio."} />
       {error && <StatusMessage title="Módulo local indisponível">{error}</StatusMessage>}
       <ResultPanel label="CHECKLIST / RESULTADO" muted>
         <div className="checklist-inline">

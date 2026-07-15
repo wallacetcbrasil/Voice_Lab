@@ -59,9 +59,9 @@ export function assertLocalUrl(input: string) {
   return url.toString().replace(/\/$/, "");
 }
 
-function nativeApiUrl(baseUrl: string) {
+function nativeApiUrl(baseUrl: string, path = "models") {
   const url = new URL(assertLocalUrl(baseUrl));
-  return `${url.protocol}//${url.host}/api/v1/models`;
+  return `${url.protocol}//${url.host}/api/v1/${path.replace(/^\//, "")}`;
 }
 
 function formatBytes(bytes: number) {
@@ -169,13 +169,8 @@ export async function listModels(baseUrl = appConfig.lmStudioBaseUrl) {
 
 export async function listAudioModels(baseUrl = appConfig.lmStudioBaseUrl) {
   try {
-    const response = await fetch(nativeApiUrl(baseUrl), {
-      headers: runtimeHeaders(),
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (!response.ok) throw new AppError(response.status, "NATIVE_MODELS_ERROR", `LM Studio respondeu HTTP ${response.status} ao listar modelos.`);
-    const payload = await response.json() as { models?: NativeLmStudioModel[] };
-    const models = normalizeAudioModels(payload.models || []);
+    const nativeModels = await fetchNativeModels(baseUrl);
+    const models = normalizeAudioModels(nativeModels);
     return {
       models,
       totalAudioFamilies: models.length,
@@ -186,6 +181,116 @@ export async function listAudioModels(baseUrl = appConfig.lmStudioBaseUrl) {
     };
   } catch (error) {
     throw mapRuntimeError(error);
+  }
+}
+
+async function fetchNativeModels(baseUrl: string) {
+  const response = await fetch(nativeApiUrl(baseUrl), {
+    headers: runtimeHeaders(),
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!response.ok) throw new AppError(response.status, "NATIVE_MODELS_ERROR", `LM Studio respondeu HTTP ${response.status} ao listar modelos.`);
+  const payload = await response.json() as { models?: NativeLmStudioModel[] };
+  return payload.models || [];
+}
+
+interface ModelLoadResult {
+  model: string;
+  loaded: true;
+  alreadyLoaded: boolean;
+  instanceId: string;
+  loadTimeSeconds?: number;
+  elapsedMs: number;
+}
+
+let activeModelLoad: { model: string; operation: Promise<ModelLoadResult> } | undefined;
+
+async function performLmStudioModelLoad(baseUrl: string, model: string): Promise<ModelLoadResult> {
+  const started = performance.now();
+  const nativeModels = await fetchNativeModels(baseUrl);
+  const selected = nativeModels.find((candidate) => candidate.key === model);
+  if (!selected) {
+    throw new AppError(404, "MODEL_NOT_FOUND", "A quantização selecionada não foi encontrada no LM Studio.", "Atualize a descoberta e escolha uma variante ainda disponível.");
+  }
+  if (!audioEvidence(selected)) {
+    throw new AppError(400, "MODEL_NOT_AUDIO_COMPATIBLE", "O modelo selecionado não passou pelo filtro conservador de áudio.");
+  }
+
+  const selectedInstance = selected.loaded_instances?.find((instance) => instance.id)?.id;
+  if (selectedInstance) {
+    return { model, loaded: true, alreadyLoaded: true, instanceId: selectedInstance, elapsedMs: Math.round(performance.now() - started) };
+  }
+
+  const otherLoaded = nativeModels
+    .filter((candidate) => candidate.key !== model && candidate.loaded_instances?.some((instance) => instance.id))
+    .map((candidate) => candidate.display_name || candidate.key)
+    .filter(Boolean);
+  if (otherLoaded.length) {
+    throw new AppError(
+      409,
+      "OTHER_MODEL_ALREADY_LOADED",
+      `Já existe outro modelo carregado no LM Studio: ${otherLoaded.join(", ")}.`,
+      "Descarregue o modelo atual no LM Studio antes de carregar outra quantização; o Voice Lab não mantém dois modelos pesados por engano.",
+    );
+  }
+
+  const response = await fetch(nativeApiUrl(baseUrl, "models/load"), {
+    method: "POST",
+    headers: runtimeHeaders(true),
+    body: JSON.stringify({ model, echo_load_config: true }),
+    signal: AbortSignal.timeout(appConfig.modelLoadTimeoutMs),
+  });
+  const payload = await response.json().catch(() => ({})) as { status?: string; instance_id?: string; load_time_seconds?: number; error?: { message?: string } };
+  if (!response.ok || payload.status !== "loaded") {
+    throw new AppError(
+      response.status || 503,
+      "MODEL_LOAD_FAILED",
+      payload.error?.message || `LM Studio não confirmou o carregamento de ${model}.`,
+      "Verifique memória RAM/VRAM, compatibilidade da quantização e os logs do LM Studio.",
+    );
+  }
+
+  let verifiedInstance = payload.instance_id || "";
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const refreshed = await fetchNativeModels(baseUrl);
+    const instance = refreshed.find((candidate) => candidate.key === model)?.loaded_instances?.find((item) => item.id)?.id;
+    if (instance) {
+      verifiedInstance = instance;
+      break;
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+  }
+  if (!verifiedInstance) {
+    throw new AppError(502, "MODEL_LOAD_NOT_VERIFIED", "O LM Studio respondeu ao carregamento, mas a instância não apareceu na sonda de modelos.", "Atualize a lista e consulte os logs do runtime.");
+  }
+  return {
+    model,
+    loaded: true,
+    alreadyLoaded: false,
+    instanceId: verifiedInstance,
+    loadTimeSeconds: payload.load_time_seconds,
+    elapsedMs: Math.round(performance.now() - started),
+  };
+}
+
+export async function loadLmStudioModel(baseUrl = appConfig.lmStudioBaseUrl, model: string) {
+  const selectedModel = String(model || "").trim();
+  if (!selectedModel) throw new AppError(400, "MODEL_REQUIRED", "Selecione uma quantização antes de carregar.");
+  if (activeModelLoad) {
+    if (activeModelLoad.model === selectedModel) return activeModelLoad.operation;
+    throw new AppError(409, "MODEL_LOAD_IN_PROGRESS", `O modelo ${activeModelLoad.model} já está sendo carregado.`, "Aguarde a operação atual terminar antes de escolher outro modelo.");
+  }
+  const operation = performLmStudioModelLoad(baseUrl, selectedModel);
+  activeModelLoad = { model: selectedModel, operation };
+  try {
+    return await operation;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new AppError(504, "MODEL_LOAD_TIMEOUT", "O carregamento do modelo excedeu o limite dedicado.", "Consulte RAM/VRAM e aumente MODEL_LOAD_TIMEOUT_MS apenas se o runtime ainda estiver progredindo.");
+    }
+    throw mapRuntimeError(error);
+  } finally {
+    if (activeModelLoad?.operation === operation) activeModelLoad = undefined;
   }
 }
 

@@ -22,6 +22,18 @@
 - caminhos são resumidos; o frontend nunca fornece caminho arbitrário
 - `features`: texto, áudio, streaming, cloning, conversion
 
+## ModelLoadOperation
+
+- `runtime`, `engine`, `model`: destino selecionado pelo usuário
+- `state`: idle | loading | loaded | error
+- `configured`: checkpoint identificado no disco ou configuração válida
+- `loaded`: sonda do processo confirmou o checkpoint em memória
+- `startedAt`, `completedAt`, `elapsedMs`: medições reais do carregamento
+- `progressAvailable`: verdadeiro somente se o runtime fornecer uma medida verificável
+- `error`: diagnóstico acionável; nunca convertido em sucesso visual
+- Transição: idle → loading → loaded | error
+- Inferência permanece bloqueada enquanto `loaded !== true`.
+
 ## RagDocument
 
 - `id`, `name`, `type`, `createdAt`, `characterCount`

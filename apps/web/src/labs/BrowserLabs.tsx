@@ -1,11 +1,14 @@
-import { Mic, MicOff, Pause, Play, Square, Volume2 } from "lucide-react";
+import { FileAudio, Mic, MicOff, Pause, Play, Square, Volume2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { LabFrame } from "../components/LabFrame";
-import { Button, Field, Metric, Range, ResultPanel, Select, StatusMessage, Textarea } from "../components/Controls";
+import { Button, Field, Input, LongOperationNotice, Metric, Range, ResultPanel, Select, StatusMessage, Textarea } from "../components/Controls";
 import { labById } from "./catalog";
 import { getVoices, speak, stopSpeaking } from "../services/browserTtsClient";
 import { createRecognition, speechRecognitionSupported } from "../services/speechRecognitionClient";
 import { useExperiments } from "../state/ExperimentStore";
+import { ModelLoadControl } from "../components/ModelLoadControl";
+import { AudioInputGuide } from "../components/AudioInputGuide";
+import { ApiError, api } from "../services/apiClient";
 
 export function TtsBrowserLab() {
   const [text, setText] = useState("Olá! Este áudio vem do navegador, não de um modelo conversacional.");
@@ -78,6 +81,12 @@ export function SttBrowserLab() {
   const [final, setFinal] = useState("");
   const [error, setError] = useState("");
   const [latency, setLatency] = useState<number>();
+  const [whisperReady, setWhisperReady] = useState(false);
+  const [whisperFile, setWhisperFile] = useState<File>();
+  const [whisperLanguage, setWhisperLanguage] = useState("pt");
+  const [whisperBusy, setWhisperBusy] = useState(false);
+  const [whisperText, setWhisperText] = useState("");
+  const [whisperError, setWhisperError] = useState("");
   const { addResult } = useExperiments();
 
   const start = () => {
@@ -95,6 +104,18 @@ export function SttBrowserLab() {
     });
     recognition.current.start();
     setListening(true);
+  };
+
+  const transcribeLocal = async () => {
+    if (!whisperFile || !whisperReady) return;
+    setWhisperBusy(true); setWhisperError(""); setWhisperText("");
+    const form = new FormData(); form.append("audio", whisperFile); form.append("language", whisperLanguage);
+    try {
+      const response = await api<{ data: { text?: string } }>("/api/stt/whisper", { method: "POST", body: form });
+      setWhisperText(response.data.text || "O modelo não retornou texto.");
+    } catch (error) {
+      setWhisperError(error instanceof ApiError && error.hint ? `${error.message} — ${error.hint}` : error instanceof Error ? error.message : "Falha no Whisper local.");
+    } finally { setWhisperBusy(false); }
   };
 
   return (
@@ -115,6 +136,20 @@ export function SttBrowserLab() {
         <ResultPanel label="TRANSCRIÇÃO PARCIAL" muted><p>{partial || "Aguardando fala…"}</p></ResultPanel>
         <ResultPanel label="TRANSCRIÇÃO FINAL"><p>{final || "Nenhum trecho finalizado."}</p></ResultPanel>
       </div>
+      <hr className="divider" />
+      <ResultPanel label="COMPARAÇÃO OPCIONAL · FASTER-WHISPER LOCAL" muted>
+        <p>Este teste usa o mesmo áudio em um modelo STT local. O carregamento do checkpoint acontece separadamente da transcrição.</p>
+        <ModelLoadControl engine="whisper" label="Faster-Whisper" options={{ language: whisperLanguage }} onReady={setWhisperReady} />
+        <div className="form-grid">
+          <Field label="Áudio para transcrever"><Input type="file" accept="audio/*" onChange={(event) => setWhisperFile(event.target.files?.[0])} /></Field>
+          <Field label="Idioma"><Select value={whisperLanguage} onChange={(event) => setWhisperLanguage(event.target.value)}><option value="pt">Português</option><option value="en">English</option><option value="es">Español</option></Select></Field>
+        </div>
+        <AudioInputGuide kind="input" onRecorded={setWhisperFile} />
+        <Button onClick={transcribeLocal} busy={whisperBusy} disabled={!whisperReady || !whisperFile}><FileAudio size={16} /> Transcrever localmente</Button>
+        <LongOperationNotice active={whisperBusy} title="Transcrevendo com Faster-Whisper" detail="O checkpoint já foi carregado; este contador mede somente a transcrição local do arquivo." />
+        {whisperError && <StatusMessage title="Whisper local não respondeu">{whisperError}</StatusMessage>}
+        {whisperText && <p className="response-text">{whisperText}</p>}
+      </ResultPanel>
     </LabFrame>
   );
 }

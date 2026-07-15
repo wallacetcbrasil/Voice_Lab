@@ -71,3 +71,17 @@ presets de terceiros; consentimento booleano obrigatório.
 **Rationale**: reduz superfície de vazamento e torna o comportamento auditável.
 
 **Alternatives considered**: biblioteca persistente de vozes, fora de escopo e insegura por padrão.
+
+## Decision 8 — Carregamento explícito e observável de checkpoints
+
+**Decision**: o LM Studio é carregado pela API nativa `POST /api/v1/models/load`; bridges Python
+expõem `status` e `load` separados da inferência. A UI mede tempo decorrido e usa progresso
+indeterminado quando o runtime não informa percentual. O timeout de carregamento é dedicado e
+maior que o timeout comum de requisição.
+
+**Rationale**: o primeiro prompt não deve esconder download/alocação de pesos nem expirar enquanto
+o runtime ainda está inicializando. A confirmação posterior por sonda impede liberar um controle
+antes de o modelo estar realmente na memória e evita carregar várias quantizações pesadas.
+
+**Alternatives considered**: depender de JIT no primeiro prompt, rejeitado por misturar carga e
+inferência; mostrar percentual estimado, rejeitado por criar estado não observado.

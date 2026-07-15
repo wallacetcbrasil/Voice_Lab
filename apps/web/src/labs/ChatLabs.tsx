@@ -1,9 +1,10 @@
 import { AudioLines, Check, CircleHelp, Mic, Send, Square, Upload, Volume2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LabFrame } from "../components/LabFrame";
-import { Button, Field, Input, Metric, ResultPanel, Select, StatusMessage, Textarea, Toggle } from "../components/Controls";
+import { Button, Field, Input, LongOperationNotice, Metric, ResultPanel, Select, StatusMessage, Textarea, Toggle } from "../components/Controls";
 import { LmStudioModelPicker } from "../components/LmStudioModelPicker";
 import { AudioInputGuide } from "../components/AudioInputGuide";
+import { ModelLoadControl } from "../components/ModelLoadControl";
 import { labById } from "./catalog";
 import { ApiError, api, playBlob, postJson, streamChat } from "../services/apiClient";
 import { getVoices, speak } from "../services/browserTtsClient";
@@ -159,6 +160,7 @@ function RuntimeChat({
         <Button variant="secondary" onClick={() => state.response && speak(state.response, { lang: language, voiceURI })} disabled={!state.response}><Volume2 size={16} /> Ler resposta</Button>
         <Toggle checked={streaming} onChange={setStreaming} label="Streaming textual" />
       </div>
+      <LongOperationNotice active={state.busy} title="Gerando resposta" detail="O modelo já foi confirmado como carregado; este contador mede apenas o tempo da inferência atual." />
       {state.error && <StatusMessage title="Runtime não respondeu">{state.error}</StatusMessage>}
       <div className="metric-row">
         <Metric label="Primeiro token" value={state.firstTokenMs === undefined ? "—" : `${state.firstTokenMs} ms`} />
@@ -345,6 +347,7 @@ export function QwenPythonLab() {
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [modelReady, setModelReady] = useState(false);
   const [latency, setLatency] = useState<number>();
 
   const run = async () => {
@@ -370,13 +373,15 @@ export function QwenPythonLab() {
   return (
     <LabFrame lab={labById["qwen-python"]}>
       <StatusMessage type="info" title="Checkpoint recomendado">O exemplo desta bancada é mistralai/Voxtral-Mini-3B-2507: áudio ou texto entram e texto sai. Use um TTS separado para obter fala.</StatusMessage>
+      <ModelLoadControl engine="transformers" label="Checkpoint multimodal Transformers" onReady={setModelReady} />
       <div className="form-grid">
         <Field label="Teste"><Select value={mode} onChange={(event) => setMode(event.target.value)}><option value="text">texto → texto</option><option value="audio">áudio → texto</option></Select></Field>
         {mode !== "text" && <Field label="Áudio de entrada (o modelo vai ouvir)"><Input type="file" accept="audio/*" onChange={(event) => setFile(event.target.files?.[0])} /></Field>}
       </div>
       {mode !== "text" && <AudioInputGuide kind="input" onRecorded={setFile} />}
       <Field label="Prompt"><Textarea rows={3} value={prompt} onChange={(event) => setPrompt(event.target.value)} /></Field>
-      <div className="action-row"><Button onClick={run} busy={busy}><AudioLines size={16} /> Executar no backend Python</Button><Metric label="Tempo total" value={latency ? `${latency} ms` : "—"} /></div>
+      <div className="action-row"><Button onClick={run} busy={busy} disabled={!modelReady}><AudioLines size={16} /> Executar no backend Python</Button><Metric label="Tempo total" value={latency ? `${latency} ms` : "—"} /></div>
+      <LongOperationNotice active={busy} title="Executando inferência multimodal" detail="O checkpoint foi carregado separadamente; este tempo mede processamento do prompt/áudio e geração textual." />
       {error && <StatusMessage title="Backend Python indisponível">{error}</StatusMessage>}
       <ResultPanel><p>{result || "O resultado nativo aparecerá aqui quando o extra Python estiver instalado."}</p></ResultPanel>
     </LabFrame>
