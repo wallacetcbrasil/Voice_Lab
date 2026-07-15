@@ -1,0 +1,47 @@
+{
+  "name": "voice-lab",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wallacetcbrasil/Voice_Lab.git"
+  },
+  "bin": {
+    "voice-lab": "scripts/cli.mjs",
+    "voice-lab-companion": "scripts/companion.mjs",
+    "voice-lab-setup": "scripts/setup-wizard.mjs",
+    "voice-lab-runtime": "scripts/runtime.mjs"
+  },
+  "description": "Laboratório local para comparar arquiteturas de voz com IA.",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "concurrently -n API,WEB -c cyan,magenta \"npm run dev -w @voice-lab/server\" \"npm run dev -w @voice-lab/web\"",
+    "dev:server": "npm run dev -w @voice-lab/server",
+    "dev:web": "npm run dev -w @voice-lab/web",
+    "build": "npm run build -w @voice-lab/server && npm run build -w @voice-lab/web",
+    "test": "npm run test -w @voice-lab/server",
+    "check": "npm run typecheck -w @voice-lab/server && npm run typecheck -w @voice-lab/web",
+    "start": "npm run start -w @voice-lab/server",
+    "companion": "node scripts/companion.mjs",
+    "setup": "node scripts/setup-wizard.mjs",
+    "setup:check": "node scripts/setup-wizard.mjs --dry-run",
+    "runtime": "node scripts/runtime.mjs",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "multer": "^2.0.2",
+    "pdf-parse": "1.1.1",
+    "ws": "^8.18.3",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

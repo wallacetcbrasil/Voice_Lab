@@ -1,0 +1,4 @@
+-r requirements.txt
+kokoro>=0.9.4
+soundfile>=0.13
+numpy>=2

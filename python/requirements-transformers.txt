@@ -1,0 +1,7 @@
+-r requirements.txt
+transformers>=4.54,<6
+accelerate>=1.6,<2
+mistral-common[audio]>=1.8.1
+torch>=2.6,<3
+torchaudio
+soundfile>=0.13

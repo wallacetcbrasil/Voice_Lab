@@ -1,0 +1,119 @@
+openapi: 3.1.0
+info:
+  title: Voice Lab Local API
+  version: 1.0.0
+servers:
+  - url: http://localhost:3333
+paths:
+  /api/health:
+    get:
+      responses:
+        "200": { description: Saúde e capacidades locais }
+  /api/lmstudio/models:
+    get:
+      parameters:
+        - { in: query, name: baseUrl, schema: { type: string } }
+      responses:
+        "200": { description: Modelos disponíveis }
+  /api/lmstudio/audio-models:
+    get:
+      parameters:
+        - { in: query, name: baseUrl, schema: { type: string } }
+      responses:
+        "200": { description: Famílias de áudio agrupadas por quantização e estado carregado; operação somente-leitura }
+  /api/llama-cpp/diagnose:
+    get:
+      parameters:
+        - { in: query, name: baseUrl, schema: { type: string } }
+      responses:
+        "200": { description: Presença do executável, saúde do servidor e modelos anunciados }
+  /api/lmstudio/chat:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messages]
+              properties:
+                baseUrl: { type: string }
+                model: { type: string }
+                messages: { type: array, items: { type: object } }
+                stream: { type: boolean }
+      responses:
+        "200": { description: Resposta ou stream SSE }
+  /api/rag/upload:
+    post:
+      responses:
+        "200": { description: Documento e chunks indexados }
+  /api/rag/query:
+    post:
+      responses:
+        "200": { description: Chunks, fontes, prompt e tempos }
+  /api/tts/piper:
+    post:
+      responses:
+        "200": { description: WAV local }
+        "503": { description: Serviço não configurado }
+  /api/tts/kokoro:
+    post:
+      responses:
+        "200": { description: Áudio local }
+        "503": { description: Serviço não configurado }
+  /api/stt/whisper:
+    post:
+      responses:
+        "200": { description: Transcrição local }
+  /api/voice-clone/xtts:
+    post:
+      responses:
+        "200": { description: Áudio clonado }
+        "403": { description: Consentimento obrigatório }
+  /api/voice-clone/openvoice:
+    post:
+      responses:
+        "200": { description: Áudio com timbre/estilo }
+        "403": { description: Consentimento obrigatório }
+  /api/voice-conversion/rvc:
+    post:
+      responses:
+        "200": { description: Áudio convertido }
+        "403": { description: Consentimento obrigatório }
+  /api/transformers/text:
+    post:
+      responses:
+        "200": { description: Resposta textual do adapter Python }
+  /api/transformers/audio:
+    post:
+      responses:
+        "200": { description: Resposta a entrada de áudio }
+  /api/transformers/audio-to-audio:
+    post:
+      responses:
+        "200": { description: Áudio nativo quando suportado }
+  /api/realtime/session:
+    post:
+      responses:
+        "201": { description: Sessão efêmera }
+  /api/voice-samples:
+    delete:
+      responses:
+        "200": { description: Amostras temporárias removidas }
+  /api/logs:
+    get:
+      responses:
+        "200": { description: Logs sanitizados }
+components:
+  schemas:
+    Error:
+      type: object
+      required: [ok, error]
+      properties:
+        ok: { const: false }
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            hint: { type: string }

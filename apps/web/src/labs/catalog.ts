@@ -1,0 +1,137 @@
+import type { LabDefinition } from "../types";
+
+const commonRuntimeErrors = ["Runtime desligado", "modelo não carregado", "CORS/timeout", "Model ID incorreto"];
+
+export const labs: LabDefinition[] = [
+  {
+    id: "setup", number: 0, title: "Instalação e Diagnóstico", shortTitle: "Instalação", category: "Preparação",
+    description: "Instale uma vez, verifique o host atual e escolha somente as ferramentas dos laboratórios que pretende executar.",
+    truth: "O Voice Lab não instala modelos silenciosamente. Cada sonda abaixo testa a ferramenta real no host onde o backend está rodando.",
+    flow: ["Escolher laboratório", "Instalar no caminho padrão", "Verificar integração"],
+    local: "Node, runtimes e modelos escolhidos", browser: "Microfone, reprodução e Web Speech API",
+    external: "Somente downloads oficiais durante a instalação", tools: ["Node.js", "LM Studio", "Python", "motores opcionais"],
+    errors: ["Ferramenta instalada em outro host", "serviço não iniciado", "instalação fora do caminho convencional", "porta inacessível"],
+    naturalness: "Baixa",
+  },
+  {
+    id: "overview", number: 1, title: "Visão Geral", shortTitle: "Visão Geral", category: "Fundamentos",
+    description: "Mapa comparativo dos blocos de áudio, linguagem, recuperação e streaming.",
+    truth: "Arquitetura de voz é a composição de capacidades — modelo, runtime e navegador não são a mesma coisa.",
+    flow: ["Entrada", "Capacidade", "Saída"], local: "Documentação e resultados", browser: "Interface", external: "Nenhum",
+    tools: ["Navegador"], errors: ["Confundir modelo com runtime", "confundir pipeline com realtime"], naturalness: "Baixa",
+  },
+  {
+    id: "tts-browser", number: 2, title: "TTS Simples", shortTitle: "TTS Simples", category: "Fundamentos",
+    description: "Transforma texto em fala com as vozes disponíveis no sistema operacional.",
+    truth: "Este modo apenas transforma texto em áudio. Não existe IA conversacional aqui.",
+    flow: ["Texto", "speechSynthesis", "Áudio"], local: "Voz do sistema", browser: "Síntese e reprodução", external: "Nenhum",
+    tools: ["Web Speech API"], errors: ["Lista de vozes vazia", "voz removida", "autoplay bloqueado"], naturalness: "Baixa",
+  },
+  {
+    id: "stt-browser", number: 3, title: "STT Simples", shortTitle: "STT Simples", category: "Fundamentos",
+    description: "Transcreve a fala, mostrando resultados parciais e finais quando suportado.",
+    truth: "Este modo apenas transforma fala em texto. Não existe resposta de IA aqui.",
+    flow: ["Microfone", "SpeechRecognition", "Texto"], local: "Interface", browser: "Captura e reconhecimento", external: "Pode depender do fornecedor do navegador",
+    tools: ["Web Speech API", "Microfone"], errors: ["Navegador incompatível", "microfone bloqueado", "nenhuma fala detectada"], naturalness: "Baixa",
+  },
+  {
+    id: "lm-chat", number: 4, title: "LM Studio Chat + TTS", shortTitle: "LM Studio + TTS", category: "Runtimes",
+    description: "Conversa textual com um modelo local e lê a resposta com o navegador.",
+    truth: "Neste modo, o LM Studio gera texto. A voz vem do navegador.",
+    flow: ["Texto", "LM Studio", "Texto", "TTS do navegador"], local: "Backend e LM Studio", browser: "TTS", external: "Modelo carregado no LM Studio",
+    tools: ["LM Studio", "Modelo GGUF"], errors: commonRuntimeErrors, naturalness: "Baixa",
+  },
+  {
+    id: "turn-voice", number: 5, title: "Voz por Turnos: STT → LM Studio → TTS", shortTitle: "Voz por Turnos", category: "Runtimes",
+    description: "Assistente push-to-talk composto por três sistemas encadeados.",
+    truth: "Este é um assistente de voz por turnos. Ele não é realtime/live de verdade.",
+    flow: ["Voz", "STT", "Texto", "LLM", "Texto", "TTS", "Voz"], local: "LM Studio e API", browser: "STT/TTS", external: "Modelo textual local",
+    tools: ["SpeechRecognition", "LM Studio", "speechSynthesis"], errors: [...commonRuntimeErrors, "microfone bloqueado"], naturalness: "Média",
+  },
+  {
+    id: "qwen-lm", number: 6, title: "Modelo multimodal no LM Studio", shortTitle: "Multimodal no LM", category: "Runtimes",
+    description: "Mede quais modalidades de um GGUF o runtime realmente expõe.",
+    truth: "Multimodal descreve o modelo; a API do runtime pode expor apenas parte das modalidades.",
+    flow: ["Texto/áudio?", "LM Studio + GGUF", "Texto?"], local: "LM Studio", browser: "Fallback STT/TTS", external: "GGUF multimodal escolhido pelo usuário",
+    tools: ["LM Studio", "GGUF multimodal"], errors: commonRuntimeErrors, naturalness: "Média",
+  },
+  {
+    id: "qwen-llama", number: 7, title: "Modelo multimodal via llama.cpp", shortTitle: "Multimodal llama.cpp", category: "Runtimes",
+    description: "Compara o mesmo formato GGUF em outro runtime OpenAI-compatible.",
+    truth: "O GGUF compatível atual pode aceitar áudio, mas não gera áudio nativo; confirme no build usado.",
+    flow: ["Entrada", "llama-server", "Resposta"], local: "llama.cpp", browser: "Interface/TTS opcional", external: "GGUF + mmproj quando exigido",
+    tools: ["llama-server", "GGUF"], errors: [...commonRuntimeErrors, "build sem multimodal", "mmproj ausente"], naturalness: "Média",
+  },
+  {
+    id: "qwen-python", number: 8, title: "Modelo multimodal via Python/Transformers", shortTitle: "Multimodal Python", category: "Runtimes",
+    description: "Caminho opcional para percepção nativa de áudio com o checkpoint original.",
+    truth: "Esta rota testa recursos nativos que GGUF/LM Studio podem não expor.",
+    flow: ["Texto/áudio", "Processor", "Modelo multimodal", "Texto"], local: "Backend Python/GPU", browser: "Upload", external: "Checkpoint Transformers compatível",
+    tools: ["Python", "PyTorch", "Transformers"], errors: ["backend Python offline", "GPU sem memória", "versões incompatíveis"], naturalness: "Média",
+  },
+  {
+    id: "rag", number: 9, title: "RAG + Chat de Voz", shortTitle: "RAG + Voz", category: "Conhecimento",
+    description: "Busca fontes locais antes de enviar contexto ao modelo e falar a resposta.",
+    truth: "Voz + busca + LLM ainda formam um pipeline por turnos.",
+    flow: ["Voz", "STT", "Busca", "Contexto", "LLM", "TTS"], local: "Índice e runtime", browser: "STT/TTS", external: "LM Studio opcional",
+    tools: ["TXT/MD/PDF", "Busca lexical", "LM Studio"], errors: ["PDF sem texto", "nenhum chunk relevante", ...commonRuntimeErrors], naturalness: "Média",
+  },
+  {
+    id: "piper", number: 10, title: "TTS Local: Piper", shortTitle: "Piper", category: "Voz local",
+    description: "Síntese offline leve por binário e voz ONNX.",
+    truth: "Piper apenas fala o texto recebido; não entende perguntas e não faz STT.",
+    flow: ["Texto", "Piper", "WAV"], local: "Binário e voz ONNX", browser: "Reprodução", external: "Nenhum",
+    tools: ["Piper", "Voz .onnx"], errors: ["binário ausente", "modelo ausente", "voz/idioma incorreto"], naturalness: "Média",
+  },
+  {
+    id: "kokoro", number: 11, title: "TTS Local: Kokoro", shortTitle: "Kokoro", category: "Voz local",
+    description: "Síntese local voltada a fala natural, comparável a Piper e ao navegador.",
+    truth: "Kokoro gera fala; não é um modelo conversacional.",
+    flow: ["Texto", "Kokoro", "Áudio"], local: "Backend Python", browser: "Reprodução", external: "Pesos Kokoro",
+    tools: ["Python", "Kokoro"], errors: ["pacote ausente", "voz inválida", "idioma incompatível"], naturalness: "Alta",
+  },
+  {
+    id: "xtts", number: 12, title: "Clonagem de Voz: XTTS-v2", shortTitle: "XTTS-v2", category: "Voz local",
+    description: "Gera nova fala a partir de texto e uma referência vocal autorizada.",
+    truth: "XTTS-v2 é TTS com clonagem; não é conversão realtime.",
+    flow: ["Texto + referência", "XTTS-v2", "Nova fala"], local: "Python/GPU", browser: "Upload/reprodução", external: "XTTS-v2",
+    tools: ["Coqui TTS", "Áudio autorizado"], errors: ["referência curta/ruidosa", "idioma", "GPU sem memória"], naturalness: "Alta",
+  },
+  {
+    id: "openvoice", number: 13, title: "Clonagem/Estilo de Voz: OpenVoice V2", shortTitle: "OpenVoice V2", category: "Voz local",
+    description: "Transfere timbre e explora controles de estilo quando disponíveis.",
+    truth: "OpenVoice V2 combina clonagem de timbre e estilo; compare com XTTS-v2.",
+    flow: ["Texto + referência + estilo", "OpenVoice", "Fala estilizada"], local: "Python/GPU", browser: "Upload/reprodução", external: "Checkpoints OpenVoice",
+    tools: ["OpenVoice V2", "Áudio autorizado"], errors: ["checkpoint ausente", "estilo não suportado", "ruído"], naturalness: "Alta",
+  },
+  {
+    id: "rvc", number: 14, title: "Voice Conversion: RVC", shortTitle: "RVC", category: "Voz local",
+    description: "Converte uma fala já gravada para outro timbre autorizado.",
+    truth: "RVC não é TTS: a entrada precisa ser voz, não texto.",
+    flow: ["Voz gravada", "RVC", "Voz convertida"], local: "Runtime/modelo RVC", browser: "Upload/gravação", external: "Modelo de timbre autorizado",
+    tools: ["RVC", "Áudio autorizado"], errors: ["pitch incorreto", "modelo incompatível", "artefatos"], naturalness: "Média",
+  },
+  {
+    id: "realtime", number: 15, title: "Realtime/Live Experimental", shortTitle: "Realtime", category: "Experimental",
+    description: "Transmite chunks reais e, no modo assistente, executa STT → LLM → TTS por turnos curtos.",
+    truth: "O modo assistente responde de verdade, mas não é audio-to-audio full-duplex: STT e TTS ainda são capacidades do navegador.",
+    flow: ["Mic contínuo", "VAD", "Chunks", "STT do navegador", "LM Studio incremental", "TTS do navegador"], local: "Companion WebSocket e LM Studio", browser: "MediaRecorder, STT, VAD e TTS", external: "Reconhecimento do navegador pode depender do fornecedor",
+    tools: ["WebSocket", "MediaRecorder", "SpeechRecognition", "LM Studio", "speechSynthesis"], errors: ["codec WebM", "latência", "WebSocket offline", "microfone bloqueado", "modelo não carregado"], naturalness: "Média",
+  },
+  {
+    id: "comparison", number: 16, title: "Comparativo Final", shortTitle: "Comparativo", category: "Sistema",
+    description: "Agrega medições observadas e compara custo, privacidade, latência e naturalidade.",
+    truth: "Resultados medidos valem mais do que rótulos; células sem teste permanecem explícitas.",
+    flow: ["Experimentos", "Métricas", "Tabela + rankings"], local: "localStorage", browser: "Agregação", external: "Nenhum",
+    tools: ["Resultados do laboratório"], errors: ["poucos testes", "métricas não comparáveis"], naturalness: "Baixa",
+  },
+  {
+    id: "debug", number: 17, title: "Logs e Debug", shortTitle: "Logs e Debug", category: "Sistema",
+    description: "Painel sanitizado de saúde, serviços, memória, requisições e falhas.",
+    truth: "Diagnóstico bom mostra o que está ausente e a próxima ação, sem vazar áudio ou segredo.",
+    flow: ["Serviços", "Sondas", "Logs sanitizados"], local: "Backend", browser: "Painel", external: "Runtimes sondados",
+    tools: ["Health API", "Logs em memória"], errors: ["backend offline", "status obsoleto", "timeout"], naturalness: "Baixa",
+  },
+];
+
+export const labById = Object.fromEntries(labs.map((lab) => [lab.id, lab]));
