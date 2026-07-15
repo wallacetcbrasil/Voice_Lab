@@ -47,6 +47,9 @@ streaming quando disponível e reproduzi-la pelo navegador.
    **Then** recebe resposta, modelo/runtime e medições de tempo.
 2. **Given** o runtime não aceita áudio nativo, **When** o usuário tenta o teste multimodal,
    **Then** a limitação é registrada e o fallback STT→texto→TTS é distinguido.
+3. **Given** o laboratório de voz por turnos pronto, **When** o usuário clica uma vez no
+   microfone, fala com pausas naturais e clica novamente, **Then** a aplicação acumula a
+   transcrição sem enviar nas pausas e só consulta o runtime após o segundo clique.
 
 ---
 

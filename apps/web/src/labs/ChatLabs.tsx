@@ -187,11 +187,20 @@ export function TurnVoiceLab() {
   const [baseUrl, setBaseUrl] = useState("http://localhost:1234/v1");
   const [model, setModel] = useState("");
   const [modelReady, setModelReady] = useState(false);
+  const [listening, setListening] = useState(false);
   const started = useRef(0);
   const recognition = useRef<ReturnType<typeof createRecognition> | null>(null);
+  const sessionActive = useRef(false);
+  const recognitionRunning = useRef(false);
+  const stopRequested = useRef(false);
+  const finalized = useRef(false);
+  const finalTranscript = useRef("");
+  const partialTranscript = useRef("");
+  const restartTimer = useRef<number | undefined>(undefined);
+  const finalizeTimer = useRef<number | undefined>(undefined);
   const { addResult } = useExperiments();
 
-  const ask = async (text: string) => {
+  const ask = async (text: string, measuredCaptureMs: number) => {
     const generationStart = performance.now();
     setPhase("Modelo pensando"); setError("");
     try {
@@ -210,7 +219,7 @@ export function TurnVoiceLab() {
       });
       addResult({
         modeId: "turn-voice", modeName: "Voz por Turnos", runtime: "LM Studio", model: "modelo configurado",
-        stt: "SpeechRecognition", tts: "speechSynthesis", status: "success", totalMs: (captureMs || 0) + gen,
+        stt: "SpeechRecognition", tts: "speechSynthesis", status: "success", totalMs: measuredCaptureMs + gen,
         acceptsVoice: true, generatesVoice: true, notes: ["Pipeline por turnos; voz do navegador"],
       });
     } catch (error) {
@@ -218,21 +227,132 @@ export function TurnVoiceLab() {
     }
   };
 
-  const listen = () => {
-    if (!speechRecognitionSupported()) return setError("SpeechRecognition indisponível. Use Chrome/Edge ou Whisper local.");
-    setTranscript(""); setResponse(""); setError(""); setPhase("Ouvindo"); started.current = performance.now();
-    recognition.current = createRecognition({
-      continuous: false,
-      onPartial: setTranscript,
-      onFinal: (text) => {
-        const measured = Math.round(performance.now() - started.current);
-        setCaptureMs(measured); setTranscript(text); void ask(text);
-      },
-      onError: setError,
-      onEnd: () => setPhase((current) => current === "Ouvindo" ? "Aguardando transcrição" : current),
-    });
-    recognition.current.start();
+  const joinTranscript = (finalText = finalTranscript.current, partialText = partialTranscript.current) =>
+    [finalText.trim(), partialText.trim()].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+
+  const finishAndSend = () => {
+    if (finalized.current) return;
+    finalized.current = true;
+    sessionActive.current = false;
+    recognitionRunning.current = false;
+    setListening(false);
+    window.clearTimeout(restartTimer.current);
+    window.clearTimeout(finalizeTimer.current);
+
+    const text = joinTranscript();
+    const measured = Math.round(performance.now() - started.current);
+    setCaptureMs(measured);
+    setTranscript(text);
+    if (!text) {
+      setPhase("Pronto");
+      setError("Nenhuma fala foi reconhecida. Clique no microfone e tente novamente.");
+      return;
+    }
+    setPhase("Enviando transcrição");
+    void ask(text, measured);
   };
+
+  function startRecognitionCycle() {
+    if (!sessionActive.current || stopRequested.current) return;
+    try {
+      recognitionRunning.current = true;
+      recognition.current?.start();
+      setPhase("Ouvindo · clique para enviar");
+    } catch (startError) {
+      recognitionRunning.current = false;
+      sessionActive.current = false;
+      setListening(false);
+      setPhase("Erro");
+      setError(startError instanceof Error ? startError.message : "Não foi possível reiniciar o reconhecimento de voz.");
+    }
+  }
+
+  const startTurn = () => {
+    if (!speechRecognitionSupported()) {
+      setError("SpeechRecognition indisponível. Use Chrome/Edge ou Whisper local.");
+      return;
+    }
+    window.speechSynthesis?.cancel();
+    window.clearTimeout(restartTimer.current);
+    window.clearTimeout(finalizeTimer.current);
+    finalTranscript.current = "";
+    partialTranscript.current = "";
+    finalized.current = false;
+    stopRequested.current = false;
+    sessionActive.current = true;
+    setListening(true);
+    setTranscript("");
+    setResponse("");
+    setError("");
+    setCaptureMs(undefined);
+    setGenerationMs(undefined);
+    setAudioMs(undefined);
+    setPhase("Ouvindo · clique para enviar");
+    started.current = performance.now();
+
+    recognition.current = createRecognition({
+      continuous: true,
+      onPartial: (text) => {
+        partialTranscript.current = text;
+        setTranscript(joinTranscript());
+      },
+      onFinal: (text) => {
+        finalTranscript.current = joinTranscript(finalTranscript.current, text);
+        partialTranscript.current = "";
+        setTranscript(finalTranscript.current);
+      },
+      onError: (message) => {
+        if (message === "aborted" || message === "no-speech") return;
+        const fatal = ["not-allowed", "service-not-allowed", "audio-capture", "network"].includes(message);
+        setError(`Reconhecimento de voz: ${message}.`);
+        if (fatal) {
+          sessionActive.current = false;
+          recognitionRunning.current = false;
+          setListening(false);
+          setPhase("Erro");
+        }
+      },
+      onEnd: () => {
+        recognitionRunning.current = false;
+        if (stopRequested.current) {
+          finishAndSend();
+          return;
+        }
+        if (sessionActive.current) {
+          setPhase("Ouvindo · reconectando");
+          restartTimer.current = window.setTimeout(startRecognitionCycle, 180);
+        }
+      },
+    });
+    startRecognitionCycle();
+  };
+
+  const stopTurn = () => {
+    if (!sessionActive.current || stopRequested.current) return;
+    stopRequested.current = true;
+    setListening(false);
+    setPhase("Finalizando transcrição");
+    window.clearTimeout(restartTimer.current);
+    if (recognitionRunning.current) {
+      try {
+        recognition.current?.stop();
+        finalizeTimer.current = window.setTimeout(finishAndSend, 1_500);
+      } catch {
+        finishAndSend();
+      }
+    } else {
+      finishAndSend();
+    }
+  };
+
+  useEffect(() => () => {
+    sessionActive.current = false;
+    window.clearTimeout(restartTimer.current);
+    window.clearTimeout(finalizeTimer.current);
+    try { recognition.current?.abort(); } catch { /* O reconhecimento já pode estar encerrado. */ }
+  }, []);
+
+  const inferenceBusy = ["Finalizando transcrição", "Enviando transcrição", "Modelo pensando", "Preparando áudio", "Falando"].includes(phase);
 
   return (
     <LabFrame lab={labById["turn-voice"]}>
@@ -244,9 +364,9 @@ export function TurnVoiceLab() {
           setModelReady(Boolean(selection?.ready));
         }}
       />
-      <div className={`mic-stage ${phase === "Ouvindo" ? "is-listening" : ""}`}>
-        <div className="mic-orbit"><span /><button disabled={!modelReady} onPointerDown={listen} onPointerUp={() => recognition.current?.stop()} aria-label="Segure para falar"><Mic /></button></div>
-        <div><strong>{phase === "Ouvindo" ? "Ouvindo…" : "Voz por turnos"}</strong><p>{modelReady ? "Segure o microfone, fale naturalmente e solte para enviar ao LM Studio." : "Confirme o modelo e a quantização antes de iniciar."}</p><div className="phase-display"><span className="phase-dot" />{phase}</div></div>
+      <div className={`mic-stage ${listening ? "is-listening" : ""}`}>
+        <div className="mic-orbit"><span /><button disabled={(!modelReady || inferenceBusy) && !listening} onClick={() => sessionActive.current ? stopTurn() : startTurn()} aria-label={listening ? "Parar e enviar voz" : "Iniciar captura de voz"} aria-pressed={listening}>{listening ? <Square size={20} /> : <Mic />}</button></div>
+        <div><strong>{listening ? "Ouvindo…" : "Voz por turnos"}</strong><p>{modelReady ? (listening ? "Fale à vontade. Clique novamente para parar e enviar ao LM Studio." : "Clique uma vez para começar. Clique novamente para parar e enviar.") : "Confirme o modelo e a quantização antes de iniciar."}</p><div className="phase-display"><span className="phase-dot" />{phase}</div></div>
       </div>
       <div className="results-grid">
         <ResultPanel label="VOCÊ DISSE" muted><p>{transcript || "Aguardando o seu turno…"}</p></ResultPanel>
