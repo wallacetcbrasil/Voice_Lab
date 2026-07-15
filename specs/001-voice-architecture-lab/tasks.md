@@ -91,7 +91,7 @@
 - [x] T045 Protect every Python inference bridge with an internal ephemeral credential unavailable to the frontend
 - [x] T046 Replace realtime simulation with real transport, short-turn STT→LLM→TTS, cancellation, and observed capability states
 - [x] T047 Add package metadata, privacy exclusions, exact-origin CLI support, security headers, and cross-platform CI
-- [ ] T048 Run final end-to-end verification, publish the public GitHub repository, validate the Git package command, and close local ports
+- [x] T048 Run final end-to-end verification, publish the public GitHub repository, validate the Git package command, and close local ports
 
 ## Dependencies & Execution Order
 
