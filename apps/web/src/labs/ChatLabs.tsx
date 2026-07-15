@@ -5,6 +5,7 @@ import { Button, Field, Input, LongOperationNotice, Metric, ResultPanel, Select,
 import { LmStudioModelPicker } from "../components/LmStudioModelPicker";
 import { AudioInputGuide } from "../components/AudioInputGuide";
 import { ModelLoadControl } from "../components/ModelLoadControl";
+import { LlamaRuntimeControl, type LlamaDiagnosis } from "../components/LlamaRuntimeControl";
 import { labById } from "./catalog";
 import { ApiError, api, playBlob, postJson, streamChat } from "../services/apiClient";
 import { getVoices, speak } from "../services/browserTtsClient";
@@ -33,6 +34,7 @@ function RuntimeChat({
   onModelSelection,
   onBaseUrlChange,
   defaultModel,
+  runtimeReady = true,
 }: {
   modeId: string;
   defaultUrl: string;
@@ -43,7 +45,9 @@ function RuntimeChat({
   onModelSelection?: (selection: { modelId: string; baseUrl: string; ready: boolean } | null) => void;
   onBaseUrlChange?: (baseUrl: string) => void;
   defaultModel?: string;
+  runtimeReady?: boolean;
 }) {
+  const runtimeName = modeId === "qwen-llama" ? "llama.cpp" : "LM Studio";
   const [baseUrl, setBaseUrl] = useState(defaultUrl);
   const [model, setModel] = useState(discoverLmStudioAudio ? "" : (defaultModel ?? "ggml-org/Voxtral-Mini-3B-2507-GGUF"));
   const [modelReady, setModelReady] = useState(!discoverLmStudioAudio);
@@ -75,6 +79,10 @@ function RuntimeChat({
   }, [language, voices]);
 
   const send = async () => {
+    if (!runtimeReady) {
+      setState({ response: "", error: "Inicialize e valide o runtime antes de enviar a mensagem.", busy: false });
+      return;
+    }
     if (!modelReady || !model) {
       setState({ response: "", error: "Pesquise, escolha e confirme uma quantização antes de enviar.", busy: false });
       return;
@@ -100,7 +108,7 @@ function RuntimeChat({
       setState({ response, error: "", busy: false, totalMs: total, firstTokenMs: firstToken });
       onSuccess?.(response);
       addResult({
-        modeId, modeName: title, runtime: modeId === "qwen-llama" ? "llama.cpp" : "LM Studio", model,
+        modeId, modeName: title, runtime: runtimeName, model,
         stt: "—", tts: "—", status: "success", totalMs: total, firstTokenMs: firstToken,
         acceptsVoice: false, generatesVoice: false, notes: [streaming ? "Streaming textual observado" : "Resposta não-streaming"],
       });
@@ -156,7 +164,7 @@ function RuntimeChat({
       </div>
       <Field label="Mensagem"><Textarea rows={4} value={message} onChange={(event) => setMessage(event.target.value)} /></Field>
       <div className="action-row">
-        <Button onClick={send} busy={state.busy} disabled={!message.trim() || !modelReady || !model}><Send size={16} /> Enviar</Button>
+        <Button onClick={send} busy={state.busy} disabled={!message.trim() || !modelReady || !model || !runtimeReady}><Send size={16} /> Enviar</Button>
         <Button variant="secondary" onClick={() => state.response && speak(state.response, { lang: language, voiceURI })} disabled={!state.response}><Volume2 size={16} /> Ler resposta</Button>
         <Toggle checked={streaming} onChange={setStreaming} label="Streaming textual" />
       </div>
@@ -167,7 +175,7 @@ function RuntimeChat({
         <Metric label="Resposta completa" value={state.totalMs === undefined ? "—" : `${state.totalMs} ms`} />
         <Metric label="Voz nativa" value="Não medida" />
       </div>
-      <ResultPanel label="RESPOSTA TEXTUAL"><p className="response-text">{state.response || "A resposta aparecerá aqui. Nenhuma voz é gerada pelo LM Studio neste teste."}</p></ResultPanel>
+      <ResultPanel label="RESPOSTA TEXTUAL"><p className="response-text">{state.response || `A resposta aparecerá aqui. Nenhuma voz é gerada pelo ${runtimeName} neste teste.`}</p></ResultPanel>
     </>
   );
 }
@@ -451,11 +459,14 @@ export function QwenLmLab() {
 
 export function QwenLlamaLab() {
   const [baseUrl, setBaseUrl] = useState("http://localhost:8080/v1");
+  const [diagnosis, setDiagnosis] = useState<LlamaDiagnosis | null>(null);
+  const activeModel = diagnosis?.models.find((candidate) => candidate.id)?.id || "ggml-org/Voxtral-Mini-3B-2507-GGUF";
+  const runtimeReady = Boolean(diagnosis?.serverOnline && diagnosis.models.length > 0);
   return (
     <LabFrame lab={labById["qwen-llama"]}>
       <StatusMessage type="info" title="Comparação controlada">Use a mesma quantização e contexto do teste no LM Studio. O GGUF atual lista áudio de entrada, mas não geração de áudio.</StatusMessage>
-      <StatusMessage type="info" title="Instalação centralizada">Use a primeira aba, Instalação e Diagnóstico, para instalar o llama.cpp e verificar binário, servidor e endpoint.</StatusMessage>
-      <RuntimeChat modeId="qwen-llama" title="Modelo multimodal via llama.cpp" defaultUrl={baseUrl} onBaseUrlChange={setBaseUrl} />
+      <LlamaRuntimeControl baseUrl={baseUrl} onStatus={setDiagnosis} />
+      <RuntimeChat key={activeModel} modeId="qwen-llama" title="Modelo multimodal via llama.cpp" defaultUrl={baseUrl} onBaseUrlChange={setBaseUrl} defaultModel={activeModel} runtimeReady={runtimeReady} />
     </LabFrame>
   );
 }

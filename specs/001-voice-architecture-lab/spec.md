@@ -134,6 +134,9 @@ memória e instruções para cada integração ausente.
 - **FR-004a**: Antes de liberar inferência no LM Studio, o sistema MUST listar modelos locais
   em modo somente-leitura, filtrar famílias compatíveis com áudio, priorizar instâncias já
   carregadas e exigir confirmação explícita da quantização quando ela ainda não está carregada.
+- **FR-004b**: Antes de iniciar um modelo no llama.cpp, o sistema MUST descarregar modelos e
+  parar a API do LM Studio, aceitar somente uma referência Hugging Face validada, acompanhar a
+  operação real e liberar a inferência apenas depois de validar o endpoint e o modelo anunciado.
 - **FR-005**: O sistema MUST distinguir resposta textual do runtime e voz produzida pelo TTS.
 - **FR-006**: O sistema MUST medir as fases observáveis do pipeline e registrar os testes.
 - **FR-007**: O sistema MUST testar um modelo multimodal compatível em LM Studio, llama.cpp e

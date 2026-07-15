@@ -107,6 +107,10 @@
 
 - [x] T053 Replace press-and-hold capture with click-to-start/click-to-send, preserve transcript across browser recognition restarts, and validate the full build/test suite
 
+## Phase 15: Exclusive llama.cpp runtime control
+
+- [x] T054 Add authenticated start/stop controls and a terminal alternative for llama.cpp, stop LM Studio before loading the GGUF, validate runtime readiness, and block inference while offline
+
 ## Dependencies & Execution Order
 
 Setup precedes foundations. US1 and US2 establish the MVP. US3 and US4 depend only on shared

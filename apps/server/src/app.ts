@@ -18,6 +18,7 @@ import { diagnoseLlamaCpp } from "./services/llamaCppService.js";
 import { getSetupStatus } from "./services/setupService.js";
 import { isValidCompanionToken, issueCompanionToken } from "./companionAuth.js";
 import { loadPythonModel, pythonModelStatus } from "./services/modelLifecycleService.js";
+import { startManagedLlama, stopManagedLlama } from "./services/runtimeLifecycleService.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -123,6 +124,14 @@ export function createApp() {
 
   app.get("/api/llama-cpp/diagnose", asyncRoute(async (req, res) => {
     res.json({ ok: true, data: await diagnoseLlamaCpp(String(req.query.baseUrl || appConfig.llamaCppBaseUrl)) });
+  }));
+
+  app.post("/api/llama-cpp/start", asyncRoute(async (req, res) => {
+    res.json({ ok: true, data: await startManagedLlama(req.body.hf) });
+  }));
+
+  app.post("/api/llama-cpp/stop", asyncRoute(async (_req, res) => {
+    res.json({ ok: true, data: await stopManagedLlama() });
   }));
 
   app.post("/api/lmstudio/chat", asyncRoute(async (req, res) => {

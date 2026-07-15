@@ -4,6 +4,7 @@ import { createApp } from "../src/app.js";
 import { clearRag } from "../src/services/ragService.js";
 import { loadLmStudioModel, normalizeAudioModels } from "../src/services/lmStudioClient.js";
 import { closeSession, connectSession, createSession, registerChunk } from "../src/realtime/realtimeService.js";
+import { validateLlamaHfReference } from "../src/services/runtimeLifecycleService.js";
 
 const testInternalToken = "voice-lab-test-internal-token";
 process.env.VOICE_LAB_INTERNAL_TOKEN = testInternalToken;
@@ -54,6 +55,20 @@ describe("Voice Lab API", () => {
     });
     expect(response.body.data.services).toHaveLength(8);
     expect(response.body.data.services.every((service: { stage?: string }) => Boolean(service.stage))).toBe(true);
+  });
+
+  it("accepts only a bounded Hugging Face model reference for llama.cpp lifecycle actions", async () => {
+    expect(validateLlamaHfReference("ggml-org/Voxtral-Mini-3B-2507-GGUF:Q4_K_M"))
+      .toBe("ggml-org/Voxtral-Mini-3B-2507-GGUF:Q4_K_M");
+    expect(() => validateLlamaHfReference("ggml-org/Voxtral-Mini-3B-2507-GGUF")).toThrowError(/organização\/repositório/);
+    expect(() => validateLlamaHfReference("modelo.gguf --host 0.0.0.0")).toThrowError(/organização\/repositório/);
+
+    const response = await request(app)
+      .post("/api/llama-cpp/start")
+      .set("X-Voice-Lab-Token", token)
+      .send({ hf: "modelo.gguf; Remove-Item *" });
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("LLAMA_MODEL_REFERENCE_INVALID");
   });
 
   it("loads one selected LM Studio audio model before inference and verifies the instance", async () => {

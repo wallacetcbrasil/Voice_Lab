@@ -202,6 +202,12 @@ input[type="file"]::file-selector-button { margin-right: 10px; border: 0; border
 .model-load-control.loading, .long-operation { border-color: rgba(158,140,255,.22); background: rgba(158,140,255,.05); }
 .model-load-control.loading > svg, .long-operation > svg { color: var(--violet); }
 .model-load-control > span { color: #9ca5b3; font-size: 9px; }
+.runtime-control { display: grid; gap: 14px; margin: 16px 0; padding: 18px; border: 1px solid rgba(112,245,192,.2); border-radius: 12px; background: linear-gradient(135deg, rgba(112,245,192,.045), rgba(158,140,255,.035) 60%, #0c1118); box-shadow: 0 18px 55px rgba(0,0,0,.16); }
+.runtime-control-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.runtime-control-heading h3 { margin: 5px 0 0; color: #e5e9ef; font-size: 16px; }
+.runtime-control-heading p, .runtime-command p { margin: 5px 0 0; color: #7d8796; font-size: 9px; line-height: 1.5; }
+.runtime-command { padding-top: 13px; border-top: 1px solid var(--line); }
+.runtime-command > div:first-child strong { color: #cdd3dc; font-size: 10px; }
 .indeterminate-progress { position: relative; height: 3px; margin-top: 9px; overflow: hidden; border-radius: 99px; background: rgba(158,140,255,.12); }
 .indeterminate-progress span { position: absolute; inset: 0 auto 0 0; width: 38%; border-radius: inherit; background: linear-gradient(90deg, transparent, var(--violet), var(--mint)); animation: indeterminate 1.4s ease-in-out infinite; }
 @keyframes indeterminate { from { transform: translateX(-100%); } to { transform: translateX(365%); } }
@@ -493,6 +499,8 @@ td small { display: block; margin-top: 3px; color: #596372; }
   .concept-grid { grid-template-columns: 1fr; }
   .upload-test { grid-template-columns: 1fr; }
   .model-picker-heading { flex-direction: column; }
+  .runtime-control-heading { flex-direction: column; }
+  .runtime-control-heading .button { width: 100%; }
   .setup-toolbar { align-items: stretch; flex-direction: column; }
   .setup-toolbar .button { width: 100%; }
   .browser-probe-grid, .setup-probe-grid { grid-template-columns: 1fr; }

@@ -60,10 +60,16 @@ async function stopLlama({ allowExternal = false } = {}) {
   console.log("llama.cpp já estava parado.");
 }
 
-function stopLmStudio() {
+async function stopLmStudio() {
   if (!commandExists("lms")) throw new Error("CLI `lms` não encontrada. Instale/abra o LM Studio uma vez.");
   run("lms", ["unload", "--all"], { allowFailure: true });
   run("lms", ["server", "stop"], { allowFailure: true });
+  for (let index = 0; index < 20 && await online("http://127.0.0.1:1234/v1/models", 500); index += 1) {
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+  }
+  if (await online("http://127.0.0.1:1234/v1/models", 750)) {
+    throw new Error("A API do LM Studio continuou online após a solicitação de parada. Encerre o servidor pelo LM Studio antes de iniciar o llama.cpp.");
+  }
   console.log("Modelos do LM Studio descarregados e servidor local parado.");
 }
 
@@ -77,12 +83,17 @@ async function startLmStudio() {
 async function startLlama() {
   if (!commandExists("llama-server")) throw new Error("`llama-server` não encontrado. Execute primeiro `npm run setup`.");
   const hf = option("hf") || "ggml-org/Voxtral-Mini-3B-2507-GGUF:Q4_K_M";
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?::[A-Za-z0-9_.-]+)?$/.test(hf)) throw new Error("Referência Hugging Face inválida.");
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+$/.test(hf)) throw new Error("Referência Hugging Face inválida. Informe também a quantização após dois-pontos.");
+  if (await online("http://127.0.0.1:1234/v1/models")) {
+    if (!commandExists("lms")) {
+      throw new Error("A API do LM Studio está online, mas a CLI `lms` não foi encontrada. Pare o servidor no LM Studio antes de iniciar o llama.cpp.");
+    }
+    await stopLmStudio();
+  }
   if (await online("http://127.0.0.1:8080/health")) {
     console.log("llama.cpp já está inicializado em http://127.0.0.1:8080");
     return;
   }
-  if (commandExists("lms")) stopLmStudio();
 
   mkdirSync(runtimeDir(), { recursive: true });
   const logPath = join(runtimeDir(), "llama.log");
@@ -147,7 +158,7 @@ try {
   if (action === "status") await status();
   else if (action === "start" && runtime === "lmstudio") await startLmStudio();
   else if (action === "start" && runtime === "llama") await startLlama();
-  else if (action === "stop" && runtime === "lmstudio") stopLmStudio();
+  else if (action === "stop" && runtime === "lmstudio") await stopLmStudio();
   else if (action === "stop" && runtime === "llama") await stopLlama();
   else if (action === "stop" && runtime === "companion") stopCompanion();
   else if (action === "stop" && runtime === "all") {
