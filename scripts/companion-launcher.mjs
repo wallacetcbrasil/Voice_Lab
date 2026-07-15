@@ -14,7 +14,6 @@ function companionAddress() {
   }
   return { port, url: `http://127.0.0.1:${port}` };
 }
-
 async function online(url, timeout = 1_000) {
   try {
     return (await fetch(url, { signal: AbortSignal.timeout(timeout) })).ok;
@@ -71,4 +70,3 @@ export async function startCompanionInBackground(forwardedArgs = []) {
   if (processAlive(child.pid)) process.kill(child.pid, "SIGTERM");
   throw new Error(`Tempo esgotado aguardando ${url}. Consulte ${logPath}`);
 }
-

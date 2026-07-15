@@ -48,7 +48,6 @@ afterAll(async () => {
   if (port) run("scripts/runtime.mjs", ["stop", "companion"]);
   rmSync(home, { recursive: true, force: true });
 });
-
 describe("Companion CLI lifecycle", () => {
   it("keeps the background Companion alive after the start command returns", async () => {
     port = await availablePort();
@@ -70,4 +69,3 @@ describe("Companion CLI lifecycle", () => {
     expect(await online()).toBe(false);
   }, 40_000);
 });
-
