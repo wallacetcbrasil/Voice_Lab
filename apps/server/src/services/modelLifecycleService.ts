@@ -12,9 +12,9 @@ export function parseLoadablePythonEngine(value: unknown): LoadablePythonEngine 
   return engine as LoadablePythonEngine;
 }
 
-export async function pythonModelStatus(engineValue: unknown) {
+export async function pythonModelStatus(engineValue: unknown, options: Record<string, unknown> = {}) {
   const engine = parseLoadablePythonEngine(engineValue);
-  return pythonModelControl(engine as PythonBridgeEngine, "/api/models/status", { engine });
+  return pythonModelControl(engine as PythonBridgeEngine, "/api/models/status", { engine, options });
 }
 
 export async function loadPythonModel(engineValue: unknown, options: Record<string, unknown> = {}) {

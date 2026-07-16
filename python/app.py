@@ -39,6 +39,7 @@ MODEL_LOAD_STATE: dict[str, Any] = {
     "completedAt": None,
     "error": None,
 }
+OPENVOICE_LOADED_LANGUAGES: set[str] = set()
 
 OPENVOICE_REPO_ID = "myshell-ai/OpenVoiceV2"
 OPENVOICE_REVISION = "fd981100305a0e4291f93a9ad169c6d9f7bed54a"
@@ -206,13 +207,17 @@ def _hf_model_cached(repo_id: str) -> bool:
     return snapshots.is_dir() and any(item.is_dir() for item in snapshots.iterdir())
 
 
-def _model_status(name: str) -> dict[str, Any]:
+def _model_status(name: str, options: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    options = options or {}
     if name == "openvoice":
         paths = _openvoice_paths()
         present = all(paths[key].is_file() for key in ("converter_config", "converter_checkpoint")) and paths[
             "speaker_embeddings"
         ].is_dir()
-        return {"configured": present, "loaded": bool(openvoice_converter.cache_info().currsize), "path": str(paths["root"])}
+        language = str(options.get("language") or "en").lower()
+        language_code = {"en": "EN", "es": "ES", "fr": "FR", "zh": "ZH", "ja": "JP", "ko": "KR"}.get(language, "EN")
+        loaded = bool(openvoice_converter.cache_info().currsize) and language_code in OPENVOICE_LOADED_LANGUAGES
+        return {"configured": present, "loaded": loaded, "path": str(paths["root"]), "language": language_code}
     if name == "rvc":
         models = _rvc_models()
         return {"configured": bool(models), "loaded": False, "models": [model.name for model in models]}
@@ -275,8 +280,8 @@ class ModelControlRequest(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
 
 
-def model_control_payload(engine: str) -> dict[str, Any]:
-    status = _model_status(engine)
+def model_control_payload(engine: str, options: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    status = _model_status(engine, options)
     return {
         "engine": engine,
         "state": "loaded" if status.get("loaded") else MODEL_LOAD_STATE["state"],
@@ -297,7 +302,7 @@ def model_control_payload(engine: str) -> dict[str, Any]:
 def model_status(request: ModelControlRequest):
     engine = request.engine.strip().lower()
     require_engine(engine)
-    return model_control_payload(engine)
+    return model_control_payload(engine, request.options)
 
 
 @app.post("/api/models/load")
@@ -308,9 +313,9 @@ def load_model(request: ModelControlRequest):
         raise HTTPException(400, {"code": "MODEL_ENGINE_INVALID", "message": f"O motor {engine} não oferece preload explícito."})
     if not dependency_available(engine):
         not_ready(engine, "Execute o comando único de instalação na tela Instalação e Diagnóstico.")
-    current = _model_status(engine)
+    current = _model_status(engine, request.options)
     if current.get("loaded"):
-        return {**model_control_payload(engine), "alreadyLoaded": True, "elapsedMs": 0}
+        return {**model_control_payload(engine, request.options), "alreadyLoaded": True, "elapsedMs": 0}
     if not MODEL_LOAD_LOCK.acquire(blocking=False):
         raise HTTPException(
             409,
@@ -344,6 +349,8 @@ def load_model(request: ModelControlRequest):
         elif engine == "openvoice":
             MODEL_LOAD_STATE["phase"] = "downloading-checkpoints"
             ensure_openvoice_checkpoints()
+            MODEL_LOAD_STATE["phase"] = "downloading-language-data"
+            ensure_openvoice_nltk_data()
             MODEL_LOAD_STATE["phase"] = "loading-converter"
             openvoice_converter()
             language = str(request.options.get("language") or "en").lower()
@@ -354,7 +361,7 @@ def load_model(request: ModelControlRequest):
             voxtral_components()
         MODEL_LOAD_STATE.update({"state": "loaded", "phase": "ready", "completedAt": time.time()})
         return {
-            **model_control_payload(engine),
+            **model_control_payload(engine, request.options),
             "loaded": True,
             "state": "loaded",
             "alreadyLoaded": False,
@@ -509,6 +516,79 @@ def xtts_model():
     return TTS(model_name=model_id, progress_bar=False).to(device)
 
 
+def install_torchaudio_soundfile_compat() -> None:
+    """Evita o backend TorchCodec do torchaudio para WAVs locais já normalizados."""
+
+    import soundfile as sf
+    import torch
+    import torchaudio
+
+    def soundfile_load(
+        uri,
+        frame_offset: int = 0,
+        num_frames: int = -1,
+        normalize: bool = True,
+        channels_first: bool = True,
+        format=None,
+        buffer_size: int = 4096,
+        backend=None,
+    ):
+        del normalize, format, buffer_size, backend
+        frames = num_frames if num_frames and num_frames > 0 else -1
+        data, sample_rate = sf.read(str(uri), start=frame_offset, frames=frames, dtype="float32", always_2d=True)
+        tensor = torch.from_numpy(data.copy())
+        return (tensor.transpose(0, 1) if channels_first else tensor), sample_rate
+
+    torchaudio.load = soundfile_load
+
+
+def normalize_xtts_reference(path: str) -> tuple[str, float]:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise HTTPException(
+            503,
+            {
+                "code": "FFMPEG_NOT_FOUND",
+                "message": "O FFmpeg não foi encontrado para normalizar a referência do XTTS.",
+                "hint": "Execute npm run setup e abra novamente o terminal do Voice Lab.",
+            },
+        )
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as normalized:
+        normalized_path = normalized.name
+    process = subprocess.run(
+        [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", path, "-ac", "1", "-ar", "24000", normalized_path],
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
+    )
+    if process.returncode != 0:
+        Path(normalized_path).unlink(missing_ok=True)
+        raise HTTPException(
+            415,
+            {
+                "code": "REFERENCE_AUDIO_DECODE_ERROR",
+                "message": "O FFmpeg não conseguiu ler o áudio de referência.",
+                "hint": (process.stderr or "Use WAV, MP3, M4A ou WebM com áudio válido.")[-1000:],
+            },
+        )
+    import soundfile as sf
+
+    info = sf.info(normalized_path)
+    duration = info.frames / info.samplerate if info.samplerate else 0
+    if duration < 6 or duration > 15.25:
+        Path(normalized_path).unlink(missing_ok=True)
+        raise HTTPException(
+            422,
+            {
+                "code": "XTTS_REFERENCE_DURATION_INVALID",
+                "message": f"A referência do XTTS deve ter entre 6 e 15 segundos; recebido: {duration:.1f} s.",
+                "hint": "Grave novamente usando o medidor do laboratório.",
+            },
+        )
+    return normalized_path, duration
+
+
 @app.post("/api/voice-clone/xtts")
 async def clone_xtts(
     audio: UploadFile = File(...),
@@ -522,12 +602,19 @@ async def clone_xtts(
     if not dependency_available("xtts"):
         not_ready("XTTS-v2", "Instale o motor XTTS pela tela Instalação e Diagnóstico.")
     reference_path = await save_upload(audio, "reference.wav")
+    normalized_reference_path: Optional[str] = None
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as output:
         output_path = output.name
     try:
-        xtts_model().tts_to_file(
-            text=text[:5000], speaker_wav=reference_path, language=language, file_path=output_path
-        )
+        import numpy as np
+        import soundfile as sf
+
+        normalized_reference_path, _duration = normalize_xtts_reference(reference_path)
+        install_torchaudio_soundfile_compat()
+        model = xtts_model()
+        waveform = model.tts(text=text[:5000], speaker_wav=normalized_reference_path, language=language)
+        sample_rate = int(model.synthesizer.output_sample_rate or 24000)
+        sf.write(output_path, np.asarray(waveform, dtype=np.float32), sample_rate, format="WAV")
         return Response(Path(output_path).read_bytes(), media_type="audio/wav")
     except HTTPException:
         raise
@@ -535,6 +622,8 @@ async def clone_xtts(
         raise HTTPException(500, {"code": "XTTS_GENERATION_ERROR", "message": str(error)}) from error
     finally:
         Path(reference_path).unlink(missing_ok=True)
+        if normalized_reference_path:
+            Path(normalized_reference_path).unlink(missing_ok=True)
         Path(output_path).unlink(missing_ok=True)
 
 
@@ -583,6 +672,29 @@ def ensure_openvoice_checkpoints() -> dict[str, Path]:
     return require_openvoice_checkpoints()
 
 
+def ensure_openvoice_nltk_data() -> Path:
+    try:
+        import nltk
+    except ImportError:
+        not_ready("OpenVoice V2", "O pacote NLTK não foi encontrado no ambiente OpenVoice.")
+    target = voice_lab_home() / "models" / "openvoice" / "nltk_data"
+    target.mkdir(parents=True, exist_ok=True)
+    if str(target) not in nltk.data.path:
+        nltk.data.path.insert(0, str(target))
+    os.environ["NLTK_DATA"] = str(target)
+    resources = {
+        "averaged_perceptron_tagger_eng": "taggers/averaged_perceptron_tagger_eng",
+        "averaged_perceptron_tagger": "taggers/averaged_perceptron_tagger",
+    }
+    for package, resource in resources.items():
+        try:
+            nltk.data.find(resource)
+        except LookupError:
+            if not nltk.download(package, download_dir=str(target), quiet=True, raise_on_error=True):
+                raise HTTPException(502, {"code": "NLTK_DATA_DOWNLOAD_FAILED", "message": f"Não foi possível baixar o recurso NLTK {package}."})
+    return target
+
+
 @lru_cache(maxsize=1)
 def openvoice_converter():
     paths = require_openvoice_checkpoints()
@@ -602,7 +714,9 @@ def melo_tts(language: str):
         from melo.api import TTS
     except ImportError:
         not_ready("MeloTTS", "Instale OpenVoice e MeloTTS pela tela Instalação e Diagnóstico.")
-    return TTS(language=language, device=os.getenv("OPENVOICE_DEVICE", "cpu"))
+    model = TTS(language=language, device=os.getenv("OPENVOICE_DEVICE", "cpu"))
+    OPENVOICE_LOADED_LANGUAGES.add(language)
+    return model
 
 
 @app.post("/api/voice-clone/openvoice")
@@ -652,6 +766,7 @@ async def clone_openvoice(
         from openvoice import se_extractor
 
         paths = require_openvoice_checkpoints()
+        ensure_openvoice_nltk_data()
         converter = openvoice_converter()
         target_se, _audio_name = se_extractor.get_se(reference_path, converter, vad=True)
         model = melo_tts(language_code)
@@ -730,6 +845,8 @@ def rvc_executable() -> str:
 async def convert_rvc(
     audio: UploadFile = File(...),
     model: Optional[str] = Form(None),
+    transpose: int = Form(0, ge=-24, le=24),
+    f0Method: str = Form("rmvpe"),
     consentConfirmed: bool = Form(...),
 ):
     require_engine("rvc")
@@ -737,6 +854,9 @@ async def convert_rvc(
         raise HTTPException(403, {"code": "VOICE_CONSENT_REQUIRED", "message": "Use apenas vozes próprias ou autorizadas."})
     if not dependency_available("rvc"):
         not_ready("RVC", "Instale o runtime RVC pela tela Instalação e Diagnóstico.")
+    supported_f0_methods = {"rmvpe", "harvest", "dio", "pm"}
+    if f0Method not in supported_f0_methods:
+        raise HTTPException(422, {"code": "RVC_F0_METHOD_INVALID", "message": "Método de pitch RVC inválido."})
     checkpoint = resolve_rvc_model(model)
     input_path = await save_upload(audio, "input.wav")
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as output:
@@ -745,7 +865,10 @@ async def convert_rvc(
     work_dir.mkdir(parents=True, exist_ok=True)
     try:
         process = subprocess.run(
-            [rvc_executable(), "infer", "-m", str(checkpoint), "-i", input_path, "-o", output_path],
+            [
+                rvc_executable(), "infer", "-m", str(checkpoint), "-i", input_path, "-o", output_path,
+                "-fu", str(transpose), "-fm", f0Method,
+            ],
             cwd=work_dir,
             capture_output=True,
             text=True,

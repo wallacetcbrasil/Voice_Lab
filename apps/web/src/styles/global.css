@@ -400,6 +400,16 @@ td small { display: block; margin-top: 3px; color: #596372; }
 .audio-guide-copy strong { display: block; font-size: 10px; }
 .audio-guide-copy p { margin: 5px 0 0; max-width: 760px; color: #7f8998; font-size: 9px; line-height: 1.5; }
 .audio-guide .status-message { grid-column: 1 / -1; margin: 0; }
+.recording-limit { grid-column: 1 / -1; display: grid; gap: 7px; padding-top: 10px; border-top: 1px solid rgba(158,140,255,.14); }
+.recording-limit > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 9px; }
+.recording-limit > div:first-child strong { color: var(--mint); font-variant-numeric: tabular-nums; }
+.recording-limit > div:first-child span, .recording-limit small { color: #7f8998; font-size: 8px; }
+.recording-limit-track { position: relative; height: 5px; overflow: visible; border-radius: 99px; background: #222a36; }
+.recording-limit-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--violet), var(--mint)); transition: width .1s linear; }
+.recording-limit-track i { position: absolute; top: -3px; width: 1px; height: 11px; background: var(--amber); }
+.rvc-model-library { display: grid; gap: 12px; margin: 14px 0; padding: 15px; border: 1px solid rgba(241,188,92,.2); border-radius: 10px; background: rgba(241,188,92,.035); }
+.rvc-model-library > div:first-child strong { display: block; color: #d8dde5; font-size: 10px; }
+.rvc-model-library > div:first-child p { margin: 5px 0 0; color: #8a8490; font-size: 9px; line-height: 1.5; }
 .voice-upload { display: grid; grid-template-columns: 38px 1fr minmax(180px, .5fr); align-items: center; gap: 12px; padding: 15px; margin-bottom: 16px; border: 1px dashed #303948; border-radius: 10px; background: #0d1118; }
 .voice-upload > svg { color: var(--violet); }
 .voice-upload strong { font-size: 10px; }

@@ -91,6 +91,11 @@ Para uma interface local:
 npx --yes --package=github:wallacetcbrasil/Voice_Lab voice-lab start
 ```
 
+Em um clone de desenvolvimento, `npm run companion` recompila o frontend e o backend antes de
+iniciar. Assim, o mesmo comando nunca reutiliza silenciosamente um `dist` antigo. O Companion abre
+somente os bridges leves; checkpoints de Kokoro, XTTS, OpenVoice e Transformers continuam
+descarregados até o clique em **Carregar modelo** no laboratório correspondente.
+
 Para uma interface publicada, autorize **somente a origem exata** antes de iniciar:
 
 ```powershell
@@ -219,8 +224,10 @@ arquivo de voz.
 
 ### Piper
 
-TTS offline por CLI e voz ONNX. O instalador baixa `pt_BR-faber-medium.onnx` e seu JSON para a área
-persistente. `POST /api/tts/piper` gera WAV temporário e o remove depois da resposta.
+TTS offline por CLI e voz ONNX. O instalador prepara `pt_BR-faber-medium`; o laboratório consulta o
+catálogo oficial e também oferece Cadu, Edresson e Jeff. Uma voz adicional só é baixada quando o
+usuário a seleciona e clica em **Preparar voz**. `POST /api/tts/piper` gera WAV temporário e o remove
+depois da resposta.
 
 Projeto atual: [OHF-Voice/piper1-gpl](https://github.com/OHF-Voice/piper1-gpl). Confira também a
 licença específica de cada voz.
@@ -243,9 +250,12 @@ Antes do primeiro download, também exige a leitura e a confirmação explícita
 [Coqui Public Model License](https://tts-hub.github.io/cpml/). O bridge não tenta responder a um
 prompt de licença sem terminal; após o aceite, os arquivos ficam na área persistente do Voice Lab.
 
-Um bom áudio de referência tem aproximadamente 6–15 segundos, uma única pessoa, volume estável,
-pouco ruído/eco, sem música e voz própria ou explicitamente autorizada. A aplicação aceita arquivo
-ou gravação do microfone e não o envia para serviços externos.
+Um bom áudio de referência tem de 6 a 15 segundos, uma única pessoa, volume estável, pouco
+ruído/eco, sem música e voz própria ou explicitamente autorizada. O gravador bloqueia a conclusão
+antes de 6 segundos e encerra automaticamente em 15; uploads também são validados no navegador e
+novamente no bridge. O bridge normaliza a entrada com FFmpeg e usa SoundFile, evitando a dependência
+do TorchCodec incompatível com algumas combinações recentes de PyTorch/FFmpeg. A amostra não é
+enviada para serviços externos.
 
 ### OpenVoice V2
 
@@ -255,12 +265,17 @@ Clonagem de timbre e controle de estilo. O setup instala apenas o runtime. Ao cl
 projeto, e depois carrega somente o idioma selecionado. Consulte também o
 [guia oficial](https://github.com/myshell-ai/OpenVoice/blob/main/docs/USAGE.md). O checkpoint oficial
 não oferece voz-base em português; para texto em português, use XTTS-v2.
+Os recursos linguísticos exigidos pelo MeloTTS/NLTK são verificados e baixados automaticamente no
+primeiro carregamento explícito do OpenVoice; não é necessário executar o downloader do NLTK à mão.
 
 ### RVC
 
 Voice conversion: recebe uma fala gravada e converte seu timbre. Não transforma texto em voz. O
-runtime é instalado, mas o usuário fornece um arquivo `.pth` próprio ou autorizado. Consulte o
-[repositório oficial](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion).
+runtime é instalado, mas o usuário fornece um arquivo `.pth` próprio ou autorizado. O laboratório
+tem uma biblioteca local para importar e selecionar esse checkpoint e oferece apenas controles que
+o adapter realmente encaminha: transposição e método de extração de pitch. Como checkpoints
+PyTorch podem executar código, a importação exige uma confirmação separada de origem confiável.
+Consulte o [repositório oficial](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion).
 
 > Use somente sua própria voz ou uma voz com autorização explícita. Não há presets para pessoas
 > públicas ou terceiros reais.
@@ -355,11 +370,15 @@ POST   /api/rag/upload
 POST   /api/rag/query
 DELETE /api/rag
 POST   /api/tts/piper
+GET    /api/tts/piper/voices
+POST   /api/tts/piper/voices/load
 POST   /api/tts/kokoro
 POST   /api/stt/whisper
 POST   /api/voice-clone/xtts
 POST   /api/voice-clone/openvoice
 POST   /api/voice-conversion/rvc
+GET    /api/voice-conversion/rvc/models
+POST   /api/voice-conversion/rvc/models
 POST   /api/transformers/text
 POST   /api/transformers/audio
 POST   /api/transformers/audio-to-audio

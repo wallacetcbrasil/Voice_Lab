@@ -119,6 +119,8 @@ export function ModelLoadControl({
 
   const phaseText = status?.phase === "downloading-checkpoints"
     ? "Baixando checkpoints oficiais do OpenVoice V2 no Hugging Face."
+    : status?.phase === "downloading-language-data"
+      ? "Checkpoints recebidos; preparando os dados linguísticos oficiais do NLTK."
     : status?.phase === "loading-converter"
       ? "Checkpoint recebido; carregando o conversor de timbre."
       : status?.phase === "loading-melotts"

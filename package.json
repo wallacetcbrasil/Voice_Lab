@@ -23,6 +23,7 @@
     "test": "npm run test -w @voice-lab/server",
     "check": "npm run typecheck -w @voice-lab/server && npm run typecheck -w @voice-lab/web",
     "start": "npm run start -w @voice-lab/server",
+    "precompanion": "npm run build",
     "companion": "node scripts/companion.mjs",
     "setup": "node scripts/setup-wizard.mjs",
     "setup:check": "node scripts/setup-wizard.mjs --dry-run",

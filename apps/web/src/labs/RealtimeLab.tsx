@@ -2,7 +2,7 @@ import { Mic, PhoneOff, Radio, Waves } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LabFrame } from "../components/LabFrame";
 import { LmStudioModelPicker } from "../components/LmStudioModelPicker";
-import { Button, Field, Metric, Range, ResultPanel, Select, StatusMessage } from "../components/Controls";
+import { Button, Field, Input, Metric, Range, ResultPanel, Select, StatusMessage } from "../components/Controls";
 import { companionWebSocketUrl, streamChat, postJson } from "../services/apiClient";
 import { getVoices, speak, stopSpeaking } from "../services/browserTtsClient";
 import { createRecognition, speechRecognitionSupported } from "../services/speechRecognitionClient";
@@ -443,7 +443,7 @@ export function RealtimeLab() {
           </Select>
         </Field>
         <Field label="Base URL do LM Studio">
-          <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} disabled={active || mode === "transport"} />
+          <Input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} disabled={active || mode === "transport"} />
         </Field>
       </div>
 
