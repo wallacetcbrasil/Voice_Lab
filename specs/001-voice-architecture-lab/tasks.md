@@ -111,6 +111,12 @@
 
 - [x] T054 Add authenticated start/stop controls and a terminal alternative for llama.cpp, stop LM Studio before loading the GGUF, validate runtime readiness, and block inference while offline
 
+## Phase 16: Voice engine discovery and licensed model loading
+
+- [x] T055 Add a validated Kokoro language/voice catalog and replace the free-text voice identifier with a selector
+- [x] T056 Require explicit CPML acknowledgement before XTTS-v2 download and keep its cache in the Voice Lab data directory
+- [x] T057 Download pinned official OpenVoice V2 checkpoints on explicit load, expose load phases, and document supported languages
+
 ## Dependencies & Execution Order
 
 Setup precedes foundations. US1 and US2 establish the MVP. US3 and US4 depend only on shared

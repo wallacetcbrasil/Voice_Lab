@@ -5,6 +5,7 @@ import { clearRag } from "../src/services/ragService.js";
 import { loadLmStudioModel, normalizeAudioModels } from "../src/services/lmStudioClient.js";
 import { closeSession, connectSession, createSession, registerChunk } from "../src/realtime/realtimeService.js";
 import { validateLlamaHfReference } from "../src/services/runtimeLifecycleService.js";
+import { validateKokoroVoice } from "../src/services/kokoroVoiceCatalog.js";
 
 const testInternalToken = "voice-lab-test-internal-token";
 process.env.VOICE_LAB_INTERNAL_TOKEN = testInternalToken;
@@ -143,6 +144,14 @@ describe("Voice Lab API", () => {
     } finally {
       fetchMock.mockRestore();
     }
+  });
+
+  it("lists Kokoro voices by real model identifiers and rejects language mismatches", async () => {
+    const response = await request(app).get("/api/tts/kokoro/voices").set("X-Voice-Lab-Token", token).expect(200);
+    const portuguese = response.body.data.voices.filter((voice: { language: string }) => voice.language === "pt-br");
+    expect(portuguese.map((voice: { id: string }) => voice.id)).toEqual(["pf_dora", "pm_alex", "pm_santa"]);
+    expect(validateKokoroVoice("pf_dora", "pt-br")).toMatchObject({ name: "Dora", gender: "female" });
+    expect(() => validateKokoroVoice("af_heart", "pt-br")).toThrowError(/não ao idioma selecionado/);
   });
 
   it("indexes and retrieves lexical RAG context", async () => {

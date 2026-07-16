@@ -143,6 +143,8 @@ memória e instruções para cada integração ausente.
   rota Python/Transformers opcional, sem deduzir capacidade somente pelo nome do modelo.
 - **FR-008**: O sistema MUST realizar RAG lexical local e aceitar fontes manuais, TXT, MD e PDF.
 - **FR-009**: O sistema MUST expor contratos para Piper, Kokoro, Whisper, XTTS, OpenVoice e RVC.
+- **FR-009a**: O Kokoro MUST apresentar um catálogo selecionável de vozes por idioma e rejeitar combinações inválidas.
+- **FR-009b**: O XTTS-v2 MUST exigir aceite explícito da licença antes do primeiro download; o OpenVoice V2 MUST obter checkpoints oficiais somente após ação explícita de carga e reportar suas fases reais.
 - **FR-010**: Integrações ausentes MUST retornar diagnóstico acionável e não bloquear a aplicação.
 - **FR-011**: Clonagem e conversão MUST exigir consentimento explícito e permitir apagar amostras.
 - **FR-012**: O sistema MUST transportar captura real em blocos por WebSocket, medir energia/VAD

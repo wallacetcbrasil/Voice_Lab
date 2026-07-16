@@ -17,6 +17,7 @@ interface ModelStatus {
   elapsedMs?: number;
   progressAvailable: false;
   error?: string;
+  phase?: string;
 }
 
 function errorText(error: unknown) {
@@ -30,11 +31,15 @@ export function ModelLoadControl({
   label,
   options = {},
   onReady,
+  disabled = false,
+  disabledReason,
 }: {
   engine: LoadablePythonEngine;
   label: string;
   options?: Record<string, unknown>;
   onReady: (ready: boolean) => void;
+  disabled?: boolean;
+  disabledReason?: string;
 }) {
   const optionsKey = useMemo(() => JSON.stringify(options), [options]);
   const stableOptions = useMemo(() => JSON.parse(optionsKey) as Record<string, unknown>, [optionsKey]);
@@ -53,7 +58,7 @@ export function ModelLoadControl({
     try {
       const response = await postJson<{ data: ModelStatus }>("/api/models/status", { engine, options: stableOptions });
       setStatus(response.data);
-      onReadyRef.current(response.data.loaded);
+      onReadyRef.current(response.data.loaded && !disabled);
       const stillLoading = response.data.state === "loading" && !response.data.loaded;
       setLoading(stillLoading);
       if (stillLoading && response.data.startedAt) {
@@ -66,7 +71,7 @@ export function ModelLoadControl({
     } finally {
       if (!silent) setChecking(false);
     }
-  }, [engine, stableOptions]);
+  }, [disabled, engine, stableOptions]);
 
   useEffect(() => { void check(); }, [check]);
 
@@ -102,7 +107,7 @@ export function ModelLoadControl({
     return <div className="model-load-control checking"><LoaderCircle className="spin" /><div><strong>Verificando {label}</strong><p>Consultando o bridge local; nenhum modelo é carregado por esta sonda.</p></div></div>;
   }
 
-  if (status?.loaded) {
+  if (status?.loaded && !disabled) {
     return (
       <div className="model-load-control loaded">
         <CheckCircle2 />
@@ -112,6 +117,16 @@ export function ModelLoadControl({
     );
   }
 
+  const phaseText = status?.phase === "downloading-checkpoints"
+    ? "Baixando checkpoints oficiais do OpenVoice V2 no Hugging Face."
+    : status?.phase === "loading-converter"
+      ? "Checkpoint recebido; carregando o conversor de timbre."
+      : status?.phase === "loading-melotts"
+        ? "Conversor pronto; carregando a voz-base do MeloTTS."
+        : status?.phase === "downloading-or-loading"
+          ? "Baixando ou carregando o checkpoint XTTS-v2 após a confirmação da licença."
+          : "Download e alocação estão em andamento. Este runtime não fornece percentual; o tempo exibido é medido de verdade.";
+
   return (
     <>
       <div className={`model-load-control ${loading ? "loading" : "pending"}`}>
@@ -119,12 +134,13 @@ export function ModelLoadControl({
         <div>
           <strong>{loading ? `Carregando ${label} · ${elapsed} s` : `${label} ainda não está na memória`}</strong>
           <p>{loading
-            ? "Download e alocação estão em andamento. Este runtime não fornece percentual; o tempo exibido é medido de verdade."
+            ? phaseText
             : status?.configured ? "O checkpoint foi encontrado no disco e pode ser carregado agora." : "O primeiro carregamento também pode baixar arquivos oficiais e levar vários minutos."}</p>
           {loading && <div className="indeterminate-progress" aria-label={`Carregando ${label} há ${elapsed} segundos`}><span /></div>}
         </div>
-        {!loading && <Button onClick={load}><Download size={15} /> Carregar modelo</Button>}
+        {!loading && <Button onClick={load} disabled={disabled}><Download size={15} /> Carregar modelo</Button>}
       </div>
+      {disabled && disabledReason && <StatusMessage type="info" title="Confirmação necessária">{disabledReason}</StatusMessage>}
       {error && <StatusMessage title={`Não foi possível carregar ${label}`}>{error}</StatusMessage>}
     </>
   );

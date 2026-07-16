@@ -47,6 +47,7 @@ paths:
       responses:
         "200": { description: Checkpoint carregado e confirmado pelo bridge Python selecionado }
         "400": { description: Motor não oferece pré-carregamento explícito }
+        "428": { description: Aceite explícito da licença do checkpoint é obrigatório }
         "504": { description: Timeout dedicado de carregamento }
   /api/llama-cpp/diagnose:
     get:
@@ -88,6 +89,10 @@ paths:
       responses:
         "200": { description: Áudio local }
         "503": { description: Serviço não configurado }
+  /api/tts/kokoro/voices:
+    get:
+      responses:
+        "200": { description: Catálogo validado de idiomas e vozes do checkpoint Kokoro fixado }
   /api/stt/whisper:
     post:
       responses:

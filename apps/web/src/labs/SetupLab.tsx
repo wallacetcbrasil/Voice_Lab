@@ -166,8 +166,13 @@ const toolGuides: Record<string, ToolGuide> = {
   openvoice: {
     title: "OpenVoice V2",
     runsAt: "Motor Python local isolado",
-    summary: "Clonagem de timbre e estilo com checkpoints locais. O laboratório continua exigindo consentimento explícito.",
+    summary: "Clonagem de timbre e estilo. Após consentimento, o laboratório baixa os checkpoints do repositório oficial e fixado no Hugging Face.",
     documentation: "https://github.com/myshell-ai/OpenVoice/blob/main/docs/USAGE.md",
+    models: [{
+      label: "Checkpoints oficiais OpenVoice V2",
+      detail: "myshell-ai/OpenVoiceV2; conversor e vozes-base são baixados somente ao carregar o modelo.",
+      url: "https://huggingface.co/myshell-ai/OpenVoiceV2",
+    }],
   },
   rvc: {
     title: "RVC",

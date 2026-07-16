@@ -32,7 +32,16 @@ MAX_UPLOAD_BYTES = int(os.getenv("VOICE_LAB_MAX_UPLOAD_BYTES", str(50 * 1024 * 1
 INTERNAL_TOKEN = os.getenv("VOICE_LAB_INTERNAL_TOKEN", "")
 INTERNAL_TOKEN_HEADER = "x-voice-lab-internal-token"
 MODEL_LOAD_LOCK = threading.Lock()
-MODEL_LOAD_STATE: dict[str, Any] = {"state": "idle", "startedAt": None, "completedAt": None, "error": None}
+MODEL_LOAD_STATE: dict[str, Any] = {
+    "state": "idle",
+    "phase": None,
+    "startedAt": None,
+    "completedAt": None,
+    "error": None,
+}
+
+OPENVOICE_REPO_ID = "myshell-ai/OpenVoiceV2"
+OPENVOICE_REVISION = "fd981100305a0e4291f93a9ad169c6d9f7bed54a"
 
 
 @app.middleware("http")
@@ -279,6 +288,7 @@ def model_control_payload(engine: str) -> dict[str, Any]:
         "startedAt": MODEL_LOAD_STATE["startedAt"],
         "completedAt": MODEL_LOAD_STATE["completedAt"],
         "error": MODEL_LOAD_STATE["error"],
+        "phase": MODEL_LOAD_STATE["phase"],
         "progressAvailable": False,
     }
 
@@ -312,22 +322,37 @@ def load_model(request: ModelControlRequest):
         )
 
     started = time.perf_counter()
-    MODEL_LOAD_STATE.update({"state": "loading", "startedAt": time.time(), "completedAt": None, "error": None})
+    MODEL_LOAD_STATE.update({"state": "loading", "phase": "preparing", "startedAt": time.time(), "completedAt": None, "error": None})
     try:
         if engine == "kokoro":
             kokoro_pipeline(str(request.options.get("language") or "pt-br"))
         elif engine == "whisper":
             whisper_model()
         elif engine == "xtts":
+            if request.options.get("acceptCoquiLicense") is not True:
+                raise HTTPException(
+                    428,
+                    {
+                        "code": "XTTS_LICENSE_ACCEPTANCE_REQUIRED",
+                        "message": "Confirme a licença CPML do checkpoint XTTS-v2 antes do download.",
+                        "hint": "Leia https://tts-hub.github.io/cpml/ e marque a confirmação na interface. O Voice Lab não responde ao prompt legal automaticamente.",
+                    },
+                )
+            os.environ["COQUI_TOS_AGREED"] = "1"
+            MODEL_LOAD_STATE["phase"] = "downloading-or-loading"
             xtts_model()
         elif engine == "openvoice":
+            MODEL_LOAD_STATE["phase"] = "downloading-checkpoints"
+            ensure_openvoice_checkpoints()
+            MODEL_LOAD_STATE["phase"] = "loading-converter"
             openvoice_converter()
             language = str(request.options.get("language") or "en").lower()
             language_code = {"en": "EN", "es": "ES", "fr": "FR", "zh": "ZH", "ja": "JP", "ko": "KR"}.get(language, "EN")
+            MODEL_LOAD_STATE["phase"] = "loading-melotts"
             melo_tts(language_code)
         elif engine == "transformers":
             voxtral_components()
-        MODEL_LOAD_STATE.update({"state": "loaded", "completedAt": time.time()})
+        MODEL_LOAD_STATE.update({"state": "loaded", "phase": "ready", "completedAt": time.time()})
         return {
             **model_control_payload(engine),
             "loaded": True,
@@ -335,11 +360,13 @@ def load_model(request: ModelControlRequest):
             "alreadyLoaded": False,
             "elapsedMs": round((time.perf_counter() - started) * 1000),
         }
-    except HTTPException:
-        MODEL_LOAD_STATE.update({"state": "error", "completedAt": time.time(), "error": "O bridge recusou o carregamento."})
+    except HTTPException as error:
+        detail = error.detail
+        message = detail.get("message") if isinstance(detail, dict) else str(detail)
+        MODEL_LOAD_STATE.update({"state": "error", "phase": "error", "completedAt": time.time(), "error": message})
         raise
     except Exception as error:
-        MODEL_LOAD_STATE.update({"state": "error", "completedAt": time.time(), "error": f"{type(error).__name__}: {error}"})
+        MODEL_LOAD_STATE.update({"state": "error", "phase": "error", "completedAt": time.time(), "error": f"{type(error).__name__}: {error}"})
         raise HTTPException(
             500,
             {
@@ -368,8 +395,21 @@ async def save_upload(audio: UploadFile, default_name: str) -> str:
 
 class TtsRequest(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
-    voice: str = "af_heart"
-    language: str = "en-us"
+    voice: str = "pf_dora"
+    language: str = "pt-br"
+    speed: float = Field(default=1.0, ge=0.5, le=2.0)
+
+
+KOKORO_VOICE_IDS = {
+    "pf_dora", "pm_alex", "pm_santa",
+    "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah", "af_sky",
+    "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx", "am_puck", "am_santa",
+    "bf_alice", "bf_emma", "bf_isabella", "bf_lily", "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
+    "ef_dora", "em_alex", "em_santa", "ff_siwis", "hf_alpha", "hf_beta", "hm_omega", "hm_psi", "if_sara", "im_nicola",
+    "jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo",
+    "zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi", "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang",
+}
+KOKORO_LANGUAGE_PREFIX = {"pt-br": "p", "en-us": "a", "en-gb": "b", "es": "e", "fr-fr": "f", "hi": "h", "it": "i", "ja": "j", "zh": "z"}
 
 
 @lru_cache(maxsize=4)
@@ -378,7 +418,9 @@ def kokoro_pipeline(language_code: str):
         from kokoro import KPipeline
     except ImportError:
         not_ready("Kokoro", "Execute o comando único de instalação na tela Instalação e Diagnóstico.")
-    code = {"pt-br": "p", "pt": "p", "en-us": "a", "en": "a", "es": "e"}.get(language_code.lower(), "a")
+    code = KOKORO_LANGUAGE_PREFIX.get(language_code.lower())
+    if not code:
+        raise HTTPException(422, {"code": "KOKORO_LANGUAGE_INVALID", "message": f"Idioma Kokoro não suportado neste bridge: {language_code}"})
     return KPipeline(lang_code=code)
 
 
@@ -387,12 +429,20 @@ def tts_kokoro(request: TtsRequest):
     require_engine("kokoro")
     if not dependency_available("kokoro"):
         not_ready("Kokoro", "Execute o comando único de instalação na tela Instalação e Diagnóstico.")
+    expected_prefix = KOKORO_LANGUAGE_PREFIX.get(request.language.lower())
+    if request.voice not in KOKORO_VOICE_IDS:
+        raise HTTPException(422, {"code": "KOKORO_VOICE_INVALID", "message": "Selecione uma voz reconhecida no catálogo do Kokoro."})
+    if not expected_prefix or not request.voice.startswith(expected_prefix):
+        raise HTTPException(
+            422,
+            {"code": "KOKORO_VOICE_LANGUAGE_MISMATCH", "message": "A voz escolhida não pertence ao idioma selecionado."},
+        )
     try:
         import numpy as np
         import soundfile as sf
 
         pipeline = kokoro_pipeline(request.language)
-        segments = [audio for _graphemes, _phonemes, audio in pipeline(request.text, voice=request.voice)]
+        segments = [audio for _graphemes, _phonemes, audio in pipeline(request.text, voice=request.voice, speed=request.speed)]
         if not segments:
             raise RuntimeError("Kokoro não produziu segmentos.")
         output = io.BytesIO()
@@ -500,6 +550,37 @@ def require_openvoice_checkpoints() -> dict[str, Path]:
             f"Extraia checkpoints_v2 em {paths['root']}. Ausentes: {', '.join(missing)}",
         )
     return paths
+
+
+def ensure_openvoice_checkpoints() -> dict[str, Path]:
+    paths = _openvoice_paths()
+    present = all(paths[key].is_file() for key in ("converter_config", "converter_checkpoint")) and paths[
+        "speaker_embeddings"
+    ].is_dir()
+    if present:
+        return paths
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        not_ready("OpenVoice V2", "A dependência huggingface_hub não foi encontrada no ambiente OpenVoice.")
+    paths["root"].mkdir(parents=True, exist_ok=True)
+    try:
+        snapshot_download(
+            repo_id=OPENVOICE_REPO_ID,
+            revision=OPENVOICE_REVISION,
+            local_dir=str(paths["root"]),
+            allow_patterns=["converter/*", "base_speakers/ses/*"],
+        )
+    except Exception as error:
+        raise HTTPException(
+            502,
+            {
+                "code": "OPENVOICE_CHECKPOINT_DOWNLOAD_FAILED",
+                "message": f"Não foi possível baixar os checkpoints oficiais de {OPENVOICE_REPO_ID}: {error}",
+                "hint": "Verifique internet e espaço em disco. O download vem do repositório oficial myshell-ai/OpenVoiceV2 no Hugging Face.",
+            },
+        ) from error
+    return require_openvoice_checkpoints()
 
 
 @lru_cache(maxsize=1)

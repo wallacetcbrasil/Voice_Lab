@@ -19,6 +19,7 @@ import { getSetupStatus } from "./services/setupService.js";
 import { isValidCompanionToken, issueCompanionToken } from "./companionAuth.js";
 import { loadPythonModel, pythonModelStatus } from "./services/modelLifecycleService.js";
 import { startManagedLlama, stopManagedLlama } from "./services/runtimeLifecycleService.js";
+import { listKokoroVoices } from "./services/kokoroVoiceCatalog.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -193,8 +194,17 @@ export function createApp() {
     sendAdapterResult(res, result);
   }));
   app.post("/api/tts/kokoro", asyncRoute(async (req, res) => {
-    sendAdapterResult(res, await kokoro(String(req.body.text || ""), String(req.body.voice || "af_heart"), String(req.body.language || "pt-br")));
+    sendAdapterResult(res, await kokoro(
+      String(req.body.text || ""),
+      String(req.body.voice || "pf_dora"),
+      String(req.body.language || "pt-br"),
+      Number(req.body.speed || 1),
+    ));
   }));
+
+  app.get("/api/tts/kokoro/voices", (_req, res) => {
+    res.json({ ok: true, data: listKokoroVoices() });
+  });
   app.post("/api/stt/whisper", upload.single("audio"), asyncRoute(async (req, res) => {
     sendAdapterResult(res, await whisper(req.file, String(req.body.language || "pt")));
   }));

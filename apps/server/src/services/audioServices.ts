@@ -1,8 +1,10 @@
 import { AppError } from "../errors.js";
 import { pythonJson, pythonMultipart } from "./pythonBridge.js";
+import { validateKokoroVoice } from "./kokoroVoiceCatalog.js";
 
-export async function kokoro(text: string, voice: string, language: string) {
-  return pythonJson("kokoro", "/api/tts/kokoro", { text, voice, language });
+export async function kokoro(text: string, voice: string, language: string, speed = 1) {
+  validateKokoroVoice(voice, language);
+  return pythonJson("kokoro", "/api/tts/kokoro", { text, voice, language, speed });
 }
 
 export async function whisper(file?: Express.Multer.File, language = "pt") {

@@ -141,6 +141,7 @@ for (const [id, manifest] of installedBridges) {
       ...process.env,
       VOICE_LAB_ACTIVE_ENGINE: id,
       VOICE_LAB_HOME: voiceLabHome,
+      TTS_HOME: join(voiceLabHome, "models", "xtts"),
       VOICE_LAB_INTERNAL_TOKEN: internalBridgeToken,
     },
     stdio: "inherit",

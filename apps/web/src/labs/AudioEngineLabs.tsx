@@ -1,5 +1,5 @@
 import { AudioWaveform, Eraser, FileAudio, ShieldCheck, Sparkles, Volume2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LabFrame } from "../components/LabFrame";
 import { Button, Field, Input, LongOperationNotice, Metric, Range, ResultPanel, Select, StatusMessage, Textarea, Toggle } from "../components/Controls";
 import { labById } from "./catalog";
@@ -12,7 +12,9 @@ import { ModelLoadControl } from "../components/ModelLoadControl";
 function LocalTtsLab({ engine }: { engine: "piper" | "kokoro" }) {
   const lab = labById[engine];
   const [text, setText] = useState("Esta frase foi gerada por um motor de voz local.");
-  const [voice, setVoice] = useState(engine === "kokoro" ? "af_heart" : "modelo configurado");
+  const [voice, setVoice] = useState(engine === "kokoro" ? "" : "modelo configurado");
+  const [kokoroVoices, setKokoroVoices] = useState<Array<{ id: string; name: string; language: string; languageLabel: string; gender: "female" | "male" }>>([]);
+  const [catalogError, setCatalogError] = useState("");
   const [language, setLanguage] = useState("pt-br");
   const [speed, setSpeed] = useState(1);
   const [busy, setBusy] = useState(false);
@@ -26,6 +28,24 @@ function LocalTtsLab({ engine }: { engine: "piper" | "kokoro" }) {
   const { addResult } = useExperiments();
 
   useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
+
+  useEffect(() => {
+    if (engine !== "kokoro") return;
+    const controller = new AbortController();
+    api<{ data: { voices: typeof kokoroVoices } }>("/api/tts/kokoro/voices", { signal: controller.signal })
+      .then((response) => setKokoroVoices(response.data.voices))
+      .catch((caught) => {
+        if (caught instanceof DOMException && caught.name === "AbortError") return;
+        setCatalogError(caught instanceof Error ? caught.message : "Não foi possível consultar as vozes do Kokoro.");
+      });
+    return () => controller.abort();
+  }, [engine]);
+
+  const filteredKokoroVoices = useMemo(() => kokoroVoices.filter((candidate) => candidate.language === language), [kokoroVoices, language]);
+  useEffect(() => {
+    if (engine !== "kokoro" || filteredKokoroVoices.length === 0) return;
+    if (!filteredKokoroVoices.some((candidate) => candidate.id === voice)) setVoice(filteredKokoroVoices[0].id);
+  }, [engine, language, filteredKokoroVoices, voice]);
 
   const generate = async () => {
     setBusy(true); setError("");
@@ -58,14 +78,23 @@ function LocalTtsLab({ engine }: { engine: "piper" | "kokoro" }) {
     <LabFrame lab={lab}>
       <Field label="Texto"><Textarea rows={5} value={text} onChange={(event) => setText(event.target.value)} /></Field>
       <div className="form-grid">
-        <Field label={engine === "piper" ? "Voz/modelo configurado" : "Voz Kokoro"}><Input value={voice} onChange={(event) => setVoice(event.target.value)} /></Field>
+        {engine === "piper" ? (
+          <Field label="Voz/modelo configurado"><Input value={voice} readOnly /></Field>
+        ) : (
+          <Field label="Voz Kokoro" hint={`${filteredKokoroVoices.length} voz(es) disponíveis para o idioma selecionado`}>
+            <Select value={voice} onChange={(event) => setVoice(event.target.value)} disabled={filteredKokoroVoices.length === 0}>
+              {filteredKokoroVoices.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name} · {candidate.gender === "female" ? "feminina" : "masculina"} · {candidate.id}</option>)}
+            </Select>
+          </Field>
+        )}
         {engine === "kokoro" ? (
-          <Field label="Idioma"><Select value={language} onChange={(event) => setLanguage(event.target.value)}><option value="pt-br">Português (teste)</option><option value="en-us">English</option><option value="es">Español</option></Select></Field>
+          <Field label="Idioma"><Select value={language} onChange={(event) => setLanguage(event.target.value)}><option value="pt-br">Português do Brasil</option><option value="en-us">English (US)</option><option value="en-gb">English (UK)</option><option value="es">Español</option><option value="fr-fr">Français</option><option value="hi">हिन्दी</option><option value="it">Italiano</option><option value="ja">日本語</option><option value="zh">中文</option></Select></Field>
         ) : <Range label="Velocidade" value={speed} min={0.6} max={1.6} step={0.1} onChange={setSpeed} />}
       </div>
+      {catalogError && <StatusMessage title="Catálogo de vozes indisponível">{catalogError}</StatusMessage>}
       {engine === "kokoro" && <ModelLoadControl engine="kokoro" label="Kokoro-82M" options={{ language }} onReady={setModelReady} />}
       <div className="action-row">
-        <Button onClick={generate} busy={busy} disabled={!modelReady}><AudioWaveform size={16} /> Gerar com {engine === "piper" ? "Piper" : "Kokoro"}</Button>
+        <Button onClick={generate} busy={busy} disabled={!modelReady || (engine === "kokoro" && !voice)}><AudioWaveform size={16} /> Gerar com {engine === "piper" ? "Piper" : "Kokoro"}</Button>
         <Button variant="secondary" onClick={browserCompare}><Volume2 size={16} /> Comparar navegador</Button>
       </div>
       <LongOperationNotice active={busy} title={engine === "piper" ? "Sintetizando com Piper" : "Gerando fala com Kokoro"} detail="O tempo exibido é medido no navegador até o backend devolver o áudio completo." />
@@ -92,10 +121,9 @@ function VoiceTransformLab({ mode }: { mode: VoiceMode }) {
   const [duration, setDuration] = useState<number>();
   const [text, setText] = useState("Este teste utiliza uma voz com autorização explícita.");
   const [language, setLanguage] = useState(mode === "openvoice" ? "en" : "pt");
-  const [emotion, setEmotion] = useState("neutro");
   const [rhythm, setRhythm] = useState(1);
-  const [accent, setAccent] = useState("padrão");
   const [consent, setConsent] = useState(false);
+  const [xttsLicenseAccepted, setXttsLicenseAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [modelReady, setModelReady] = useState(mode === "rvc");
   const [error, setError] = useState("");
@@ -120,9 +148,9 @@ function VoiceTransformLab({ mode }: { mode: VoiceMode }) {
     form.append("consentConfirmed", String(consent));
     form.append("language", language);
     if (mode !== "rvc") form.append("text", text);
-    form.append("emotion", emotion);
+    form.append("emotion", "neutro");
     form.append("rhythm", String(rhythm));
-    form.append("accent", accent);
+    form.append("accent", "padrão");
     try {
       const blob = await api<Blob>(endpoint, { method: "POST", body: form });
       const measured = Math.round(performance.now() - started); setElapsed(measured);
@@ -148,11 +176,19 @@ function VoiceTransformLab({ mode }: { mode: VoiceMode }) {
   return (
     <LabFrame lab={lab}>
       <div className="consent-banner"><ShieldCheck size={24} /><div><strong>Use apenas sua própria voz ou voz com autorização explícita.</strong><p>Não há presets de pessoas públicas. A amostra não deve ser enviada a serviços externos.</p></div></div>
+      {mode === "xtts" && (
+        <div className="license-confirmation">
+          <Toggle checked={xttsLicenseAccepted} onChange={setXttsLicenseAccepted} label="Li e aceito a licença CPML aplicável ao checkpoint XTTS-v2." />
+          <a href="https://tts-hub.github.io/cpml/" target="_blank" rel="noreferrer">Ler a CPML oficial</a>
+        </div>
+      )}
       {mode !== "rvc" && (
         <ModelLoadControl
           engine={mode}
           label={mode === "xtts" ? "XTTS-v2" : "OpenVoice V2 + MeloTTS"}
-          options={mode === "openvoice" ? { language } : {}}
+          options={mode === "openvoice" ? { language } : { acceptCoquiLicense: xttsLicenseAccepted }}
+          disabled={mode === "xtts" && !xttsLicenseAccepted}
+          disabledReason={mode === "xtts" && !xttsLicenseAccepted ? "O checkpoint XTTS-v2 usa a Coqui Public Model License. Leia e aceite os termos antes que o bridge faça o download." : undefined}
           onReady={setModelReady}
         />
       )}
@@ -164,10 +200,12 @@ function VoiceTransformLab({ mode }: { mode: VoiceMode }) {
       </div>
       {mode !== "rvc" && <Field label="Texto de saída"><Textarea rows={4} value={text} onChange={(event) => setText(event.target.value)} /></Field>}
       <div className="form-grid">
-        <Field label="Idioma"><Select value={language} onChange={(event) => setLanguage(event.target.value)}><option value="pt">Português</option><option value="en">English</option><option value="es">Español</option></Select></Field>
-        {mode === "openvoice" ? <Field label="Emoção"><Select value={emotion} onChange={(event) => setEmotion(event.target.value)}><option>neutro</option><option>alegre</option><option>calmo</option><option>enérgico</option></Select></Field> : <Field label={mode === "rvc" ? "Modelo RVC" : "Voz/modelo"}><Input value="configurado no backend" readOnly /></Field>}
+        <Field label="Idioma"><Select value={language} onChange={(event) => setLanguage(event.target.value)}>
+          {mode === "openvoice" ? <><option value="en">English</option><option value="es">Español</option><option value="fr">Français</option><option value="zh">中文</option><option value="ja">日本語</option><option value="ko">한국어</option></> : <><option value="pt">Português</option><option value="en">English</option><option value="es">Español</option></>}
+        </Select></Field>
+        <Field label={mode === "rvc" ? "Modelo RVC" : mode === "openvoice" ? "Estilo disponível" : "Voz/modelo"}><Input value={mode === "openvoice" ? "Timbre da referência + ritmo" : "configurado no backend"} readOnly /></Field>
       </div>
-      {mode === "openvoice" && <><div className="range-grid"><Range label="Ritmo" value={rhythm} min={0.7} max={1.4} step={0.1} onChange={setRhythm} /><Field label="Sotaque"><Input value={accent} onChange={(event) => setAccent(event.target.value)} /></Field></div><p className="footnote">Pausa e entonação dependem do checkpoint/backend; controles não suportados são reportados pelo adapter.</p></>}
+      {mode === "openvoice" && <><Range label="Ritmo" value={rhythm} min={0.7} max={1.4} step={0.1} onChange={setRhythm} /><p className="footnote">Este adapter aplica somente o ritmo do MeloTTS e o timbre extraído da referência. Emoção e sotaque não são exibidos porque este caminho não os implementa.</p></>}
       <Toggle checked={consent} onChange={setConsent} label="Confirmo que a voz é minha ou tenho autorização explícita para usá-la." />
       <div className="action-row">
         <Button onClick={run} busy={busy} disabled={!file || !consent || !modelReady}><Sparkles size={16} /> {mode === "rvc" ? "Converter voz" : mode === "xtts" ? "Gerar voz clonada" : "Gerar timbre/estilo"}</Button>

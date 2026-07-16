@@ -157,7 +157,7 @@ O Voice Lab não distribui presets de terceiros e não carrega pesos durante a i
 | Piper | `pt_BR-faber-medium` | voz ONNX baixada pelo instalador |
 | Kokoro | `hexgrad/Kokoro-82M` | pesos baixados somente na primeira geração |
 | XTTS-v2 | `tts_models/multilingual/multi-dataset/xtts_v2` | exige aceite da licença e voz autorizada |
-| OpenVoice V2 | checkpoints V2 oficiais | timbre/estilo; usuário fornece os checkpoints |
+| OpenVoice V2 | [`myshell-ai/OpenVoiceV2`](https://huggingface.co/myshell-ai/OpenVoiceV2) | conversor e vozes-base baixados somente ao carregar |
 | RVC | arquivo `.pth` próprio ou autorizado | conversão de fala; não é TTS |
 
 O GGUF de referência aceita entrada de áudio e gera texto; não gera fala nativa. O suporte real pode
@@ -228,7 +228,8 @@ licença específica de cada voz.
 ### Kokoro
 
 TTS Python local. O pacote é instalado pelo setup; os pesos são obtidos sob demanda na primeira
-geração. Compare sua voz/idioma disponíveis com Piper e TTS do navegador.
+geração. A interface consulta o catálogo suportado pelo adapter e oferece seletores de idioma e voz;
+não é necessário memorizar identificadores. Compare o resultado com Piper e TTS do navegador.
 
 ### Faster-Whisper
 
@@ -238,6 +239,9 @@ host. O padrão é CPU + `int8` e checkpoint `tiny`; CUDA é um override adminis
 ### XTTS-v2
 
 TTS com clonagem. A interface exige uma referência de voz, texto, idioma e consentimento.
+Antes do primeiro download, também exige a leitura e a confirmação explícita da
+[Coqui Public Model License](https://tts-hub.github.io/cpml/). O bridge não tenta responder a um
+prompt de licença sem terminal; após o aceite, os arquivos ficam na área persistente do Voice Lab.
 
 Um bom áudio de referência tem aproximadamente 6–15 segundos, uma única pessoa, volume estável,
 pouco ruído/eco, sem música e voz própria ou explicitamente autorizada. A aplicação aceita arquivo
@@ -245,9 +249,12 @@ ou gravação do microfone e não o envia para serviços externos.
 
 ### OpenVoice V2
 
-Clonagem de timbre e controle de estilo. O setup instala o runtime, mas o usuário ainda fornece os
-checkpoints V2 oficiais/autorizados. Consulte o
-[guia oficial](https://github.com/myshell-ai/OpenVoice/blob/main/docs/USAGE.md).
+Clonagem de timbre e controle de estilo. O setup instala apenas o runtime. Ao clicar em
+**Carregar modelo**, o bridge baixa o conversor e as vozes-base do repositório oficial
+[`myshell-ai/OpenVoiceV2`](https://huggingface.co/myshell-ai/OpenVoiceV2), em uma revisão fixada pelo
+projeto, e depois carrega somente o idioma selecionado. Consulte também o
+[guia oficial](https://github.com/myshell-ai/OpenVoice/blob/main/docs/USAGE.md). O checkpoint oficial
+não oferece voz-base em português; para texto em português, use XTTS-v2.
 
 ### RVC
 
