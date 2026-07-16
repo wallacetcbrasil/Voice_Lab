@@ -145,6 +145,9 @@ memória e instruções para cada integração ausente.
 - **FR-009**: O sistema MUST expor contratos para Piper, Kokoro, Whisper, XTTS, OpenVoice e RVC.
 - **FR-009a**: O Kokoro MUST apresentar um catálogo selecionável de vozes por idioma e rejeitar combinações inválidas.
 - **FR-009b**: O XTTS-v2 MUST exigir aceite explícito da licença antes do primeiro download; o OpenVoice V2 MUST obter checkpoints oficiais somente após ação explícita de carga e reportar suas fases reais.
+- **FR-009c**: O OpenVoice MUST oferecer português por um pipeline local verificável Piper PT-BR → conversor OpenVoice, deixando explícito que MeloTTS não possui voz-base portuguesa nativa.
+- **FR-009d**: O RVC MUST explicar que o checkpoint representa um timbre treinado, direcionar ao treinamento oficial de uma voz própria/autorizada e não distribuir presets de terceiros.
+- **FR-009e**: A duração de gravações XTTS MUST usar a medição real da sessão e nunca apresentar valores não finitos; uploads sem metadados confiáveis MUST ser validados novamente pelo backend.
 - **FR-010**: Integrações ausentes MUST retornar diagnóstico acionável e não bloquear a aplicação.
 - **FR-011**: Clonagem e conversão MUST exigir consentimento explícito e permitir apagar amostras.
 - **FR-012**: O sistema MUST transportar captura real em blocos por WebSocket, medir energia/VAD

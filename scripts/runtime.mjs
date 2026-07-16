@@ -61,6 +61,10 @@ async function stopLlama({ allowExternal = false } = {}) {
 }
 
 async function stopLmStudio() {
+  if (!await online("http://127.0.0.1:1234/v1/models", 750)) {
+    console.log("LM Studio já estava parado; nenhum modelo foi carregado ou descarregado.");
+    return;
+  }
   if (!commandExists("lms")) throw new Error("CLI `lms` não encontrada. Instale/abra o LM Studio uma vez.");
   run("lms", ["unload", "--all"], { allowFailure: true });
   run("lms", ["server", "stop"], { allowFailure: true });

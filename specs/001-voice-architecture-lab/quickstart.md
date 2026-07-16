@@ -42,7 +42,8 @@ o tempo continua visível sem expirar no timeout comum da API.
 
 No Kokoro, selecione idioma e voz no catálogo em vez de digitar um identificador. No XTTS-v2,
 leia e aceite a CPML antes de carregar. No OpenVoice V2, o botão de carga obtém os checkpoints do
-repositório oficial fixado e exibe separadamente download, conversor e MeloTTS.
+repositório oficial fixado e exibe separadamente download e conversor. Para português, selecione e
+prepare uma voz-base Piper PT-BR; para os idiomas nativos, o laboratório carrega o MeloTTS.
 
 ## RAG
 

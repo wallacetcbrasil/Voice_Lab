@@ -83,7 +83,16 @@ paths:
     post:
       responses:
         "200": { description: WAV local }
-        "503": { description: Serviço não configurado }
+          "503": { description: Serviço não configurado }
+  /api/tts/piper/voices:
+    get:
+      responses:
+        "200": { description: Catálogo oficial pt_BR com estado real de cada voz no disco }
+  /api/tts/piper/voices/load:
+    post:
+      responses:
+        "200": { description: Voz selecionada baixada e verificada sem carregar outro motor }
+        "422": { description: Identificador fora do catálogo permitido }
   /api/tts/kokoro:
     post:
       responses:
@@ -105,13 +114,22 @@ paths:
   /api/voice-clone/openvoice:
     post:
       responses:
-        "200": { description: Áudio com timbre/estilo }
+        "200": { description: Áudio com timbre/estilo; PT-BR usa fala-base Piper local }
         "403": { description: Consentimento obrigatório }
   /api/voice-conversion/rvc:
     post:
       responses:
         "200": { description: Áudio convertido }
         "403": { description: Consentimento obrigatório }
+  /api/voice-conversion/rvc/models:
+    get:
+      responses:
+        "200": { description: Checkpoints RVC autorizados presentes na biblioteca local }
+    post:
+      responses:
+        "201": { description: Checkpoint próprio ou autorizado importado para a biblioteca local }
+        "403": { description: Consentimento e confirmação de origem confiável obrigatórios }
+        "415": { description: Extensão, nome ou cabeçalho do checkpoint inválido }
   /api/transformers/text:
     post:
       responses:

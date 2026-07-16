@@ -1,9 +1,10 @@
 import cors from "cors";
 import express, { type Response } from "express";
 import multer from "multer";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
+import { randomUUID } from "node:crypto";
 import { appConfig, isAllowedWebOrigin, rootDir } from "./config.js";
 import { AppError, asyncRoute, errorMiddleware } from "./errors.js";
 import { addLog, clearLogs, getLogs, requestLogger } from "./logger.js";
@@ -11,7 +12,7 @@ import { getCapabilities } from "./services/capabilityService.js";
 import { chatCompletion, listAudioModels, listModels, loadLmStudioModel, streamChat, type ChatInput } from "./services/lmStudioClient.js";
 import { addDocument, clearRag, queryRag, ragStats } from "./services/ragService.js";
 import { kokoro, openVoice, requireConsent, rvc, whisper, xtts } from "./services/audioServices.js";
-import { synthesizePiper } from "./services/piperService.js";
+import { listPiperVoices, preparePiperVoice, synthesizePiper } from "./services/piperService.js";
 import { qwenAudio, qwenAudioToAudio, qwenText } from "./services/qwenOmniService.js";
 import { createSession, realtimeStats } from "./realtime/realtimeService.js";
 import { diagnoseLlamaCpp } from "./services/llamaCppService.js";
@@ -20,10 +21,21 @@ import { isValidCompanionToken, issueCompanionToken } from "./companionAuth.js";
 import { loadPythonModel, pythonModelStatus } from "./services/modelLifecycleService.js";
 import { startManagedLlama, stopManagedLlama } from "./services/runtimeLifecycleService.js";
 import { listKokoroVoices } from "./services/kokoroVoiceCatalog.js";
+import { importRvcModel, listRvcModels } from "./services/rvcModelService.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: appConfig.maxUploadMb * 1024 * 1024, files: 1 },
+});
+
+const rvcUploadDirectory = resolve(rootDir, "temp", "uploads");
+mkdirSync(rvcUploadDirectory, { recursive: true });
+const rvcModelUpload = multer({
+  storage: multer.diskStorage({
+    destination: rvcUploadDirectory,
+    filename: (_req, _file, callback) => callback(null, `${randomUUID()}.upload`),
+  }),
+  limits: { fileSize: 512 * 1024 * 1024, files: 1 },
 });
 
 function sendAdapterResult(res: Response, result: { audio?: Buffer; contentType?: string; json?: unknown }) {
@@ -116,7 +128,7 @@ export function createApp() {
   }));
 
   app.post("/api/models/status", asyncRoute(async (req, res) => {
-    res.json({ ok: true, data: await pythonModelStatus(req.body.engine) });
+    res.json({ ok: true, data: await pythonModelStatus(req.body.engine, req.body.options || {}) });
   }));
 
   app.post("/api/models/load", asyncRoute(async (req, res) => {
@@ -190,8 +202,14 @@ export function createApp() {
   });
 
   app.post("/api/tts/piper", asyncRoute(async (req, res) => {
-    const result = await synthesizePiper(String(req.body.text || ""), Number(req.body.speed || 1));
+    const result = await synthesizePiper(String(req.body.text || ""), Number(req.body.speed || 1), String(req.body.voice || "pt_BR-faber-medium"));
     sendAdapterResult(res, result);
+  }));
+  app.get("/api/tts/piper/voices", (_req, res) => {
+    res.json({ ok: true, data: listPiperVoices() });
+  });
+  app.post("/api/tts/piper/voices/load", asyncRoute(async (req, res) => {
+    res.json({ ok: true, data: await preparePiperVoice(String(req.body.voice || "")) });
   }));
   app.post("/api/tts/kokoro", asyncRoute(async (req, res) => {
     sendAdapterResult(res, await kokoro(
@@ -217,6 +235,12 @@ export function createApp() {
   }));
   app.post("/api/voice-conversion/rvc", upload.single("audio"), asyncRoute(async (req, res) => {
     sendAdapterResult(res, await rvc(req.body, req.file));
+  }));
+  app.get("/api/voice-conversion/rvc/models", asyncRoute(async (_req, res) => {
+    res.json({ ok: true, data: await listRvcModels() });
+  }));
+  app.post("/api/voice-conversion/rvc/models", rvcModelUpload.single("model"), asyncRoute(async (req, res) => {
+    res.status(201).json({ ok: true, data: await importRvcModel(req.file, req.body.consentConfirmed, req.body.trustedCheckpointConfirmed) });
   }));
 
   app.post("/api/qwen-omni/text", asyncRoute(async (req, res) => {

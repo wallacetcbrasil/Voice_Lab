@@ -117,6 +117,21 @@
 - [x] T056 Require explicit CPML acknowledgement before XTTS-v2 download and keep its cache in the Voice Lab data directory
 - [x] T057 Download pinned official OpenVoice V2 checkpoints on explicit load, expose load phases, and document supported languages
 
+## Phase 17: Voice engine usability and compatibility
+
+- [x] T058 Add selectable Piper catalog, explicit per-voice preparation, and verified synthesis routing
+- [x] T059 Enforce XTTS 6–15 second recording/upload limits and remove the TorchCodec runtime dependency
+- [x] T060 Repair OpenVoice linguistic resource loading and verify full authorized voice generation
+- [x] T061 Add secure local RVC checkpoint import/selection plus real pitch controls
+- [x] T062 Standardize the realtime Base URL control, rebuild from the single Companion command, and run full verification
+
+## Phase 18: Portuguese voice paths and media reliability
+
+- [x] T063 Add a verified Piper PT-BR source path to OpenVoice V2 while preserving native MeloTTS languages
+- [x] T064 Preserve measured browser-recording duration for XTTS and fall back to backend validation for unreliable WebM metadata
+- [x] T065 Repair the Piper readiness layout and add safe official RVC checkpoint acquisition guidance
+- [x] T066 Run full automated, inference, browser, and pull-request verification
+
 ## Dependencies & Execution Order
 
 Setup precedes foundations. US1 and US2 establish the MVP. US3 and US4 depend only on shared

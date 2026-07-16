@@ -142,6 +142,7 @@ for (const [id, manifest] of installedBridges) {
       VOICE_LAB_ACTIVE_ENGINE: id,
       VOICE_LAB_HOME: voiceLabHome,
       TTS_HOME: join(voiceLabHome, "models", "xtts"),
+      NLTK_DATA: join(voiceLabHome, "models", "openvoice", "nltk_data"),
       VOICE_LAB_INTERNAL_TOKEN: internalBridgeToken,
     },
     stdio: "inherit",

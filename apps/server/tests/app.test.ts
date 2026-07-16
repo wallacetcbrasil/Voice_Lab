@@ -146,6 +146,50 @@ describe("Voice Lab API", () => {
     }
   });
 
+  it("forwards language options while checking an OpenVoice model", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({
+      engine: "openvoice",
+      state: "idle",
+      configured: true,
+      loaded: false,
+      progressAvailable: false,
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    try {
+      await request(app)
+        .post("/api/models/status")
+        .set("X-Voice-Lab-Token", token)
+        .send({ engine: "openvoice", options: { language: "es" } })
+        .expect(200);
+      expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+        engine: "openvoice",
+        options: { language: "es" },
+      });
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it("lists the supported Piper voices and their real installation state", async () => {
+    const response = await request(app).get("/api/tts/piper/voices").set("X-Voice-Lab-Token", token).expect(200);
+    expect(response.body.data.source).toBe("rhasspy/piper-voices");
+    expect(response.body.data.voices.map((voice: { id: string }) => voice.id)).toEqual([
+      "pt_BR-cadu-medium",
+      "pt_BR-edresson-low",
+      "pt_BR-faber-medium",
+      "pt_BR-jeff-medium",
+    ]);
+    expect(response.body.data.voices.every((voice: { installed: unknown }) => typeof voice.installed === "boolean")).toBe(true);
+  });
+
+  it("requires voice authorization and checkpoint trust before importing an RVC model", async () => {
+    const response = await request(app)
+      .post("/api/voice-conversion/rvc/models")
+      .set("X-Voice-Lab-Token", token)
+      .attach("model", Buffer.from([0x50, 0x4b, 0x03, 0x04]), "authorized-test.pth");
+    expect(response.status).toBe(403);
+    expect(response.body.error.code).toBe("VOICE_CONSENT_REQUIRED");
+  });
+
   it("lists Kokoro voices by real model identifiers and rejects language mismatches", async () => {
     const response = await request(app).get("/api/tts/kokoro/voices").set("X-Voice-Lab-Token", token).expect(200);
     const portuguese = response.body.data.voices.filter((voice: { language: string }) => voice.language === "pt-br");

@@ -1,5 +1,5 @@
-import { AudioWaveform, Eraser, FileAudio, ShieldCheck, Sparkles, Volume2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { AudioWaveform, CheckCircle2, Download, Eraser, ExternalLink, FileAudio, ShieldCheck, Sparkles, Upload, Volume2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LabFrame } from "../components/LabFrame";
 import { Button, Field, Input, LongOperationNotice, Metric, Range, ResultPanel, Select, StatusMessage, Textarea, Toggle } from "../components/Controls";
 import { labById } from "./catalog";
@@ -12,13 +12,15 @@ import { ModelLoadControl } from "../components/ModelLoadControl";
 function LocalTtsLab({ engine }: { engine: "piper" | "kokoro" }) {
   const lab = labById[engine];
   const [text, setText] = useState("Esta frase foi gerada por um motor de voz local.");
-  const [voice, setVoice] = useState(engine === "kokoro" ? "" : "modelo configurado");
+  const [voice, setVoice] = useState("");
+  const [piperVoices, setPiperVoices] = useState<Array<{ id: string; name: string; quality: string; language: string; installed: boolean }>>([]);
   const [kokoroVoices, setKokoroVoices] = useState<Array<{ id: string; name: string; language: string; languageLabel: string; gender: "female" | "male" }>>([]);
   const [catalogError, setCatalogError] = useState("");
   const [language, setLanguage] = useState("pt-br");
   const [speed, setSpeed] = useState(1);
   const [busy, setBusy] = useState(false);
-  const [modelReady, setModelReady] = useState(engine === "piper");
+  const [preparingVoice, setPreparingVoice] = useState(false);
+  const [modelReady, setModelReady] = useState(false);
   const [error, setError] = useState("");
   const [audioUrl, setAudioUrl] = useState("");
   const [generationMs, setGenerationMs] = useState<number>();
@@ -30,10 +32,12 @@ function LocalTtsLab({ engine }: { engine: "piper" | "kokoro" }) {
   useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
 
   useEffect(() => {
-    if (engine !== "kokoro") return;
     const controller = new AbortController();
-    api<{ data: { voices: typeof kokoroVoices } }>("/api/tts/kokoro/voices", { signal: controller.signal })
-      .then((response) => setKokoroVoices(response.data.voices))
+    api<{ data: { voices: typeof kokoroVoices | typeof piperVoices } }>(`/api/tts/${engine}/voices`, { signal: controller.signal })
+      .then((response) => {
+        if (engine === "kokoro") setKokoroVoices(response.data.voices as typeof kokoroVoices);
+        else setPiperVoices(response.data.voices as typeof piperVoices);
+      })
       .catch((caught) => {
         if (caught instanceof DOMException && caught.name === "AbortError") return;
         setCatalogError(caught instanceof Error ? caught.message : "Não foi possível consultar as vozes do Kokoro.");
@@ -41,11 +45,38 @@ function LocalTtsLab({ engine }: { engine: "piper" | "kokoro" }) {
     return () => controller.abort();
   }, [engine]);
 
+  useEffect(() => {
+    if (engine !== "piper" || piperVoices.length === 0) return;
+    const selected = piperVoices.find((candidate) => candidate.id === voice);
+    if (!selected) {
+      const preferred = piperVoices.find((candidate) => candidate.id === "pt_BR-faber-medium" && candidate.installed)
+        || piperVoices.find((candidate) => candidate.installed)
+        || piperVoices[0];
+      setVoice(preferred.id);
+      setModelReady(preferred.installed);
+    } else {
+      setModelReady(selected.installed);
+    }
+  }, [engine, piperVoices, voice]);
+
   const filteredKokoroVoices = useMemo(() => kokoroVoices.filter((candidate) => candidate.language === language), [kokoroVoices, language]);
   useEffect(() => {
     if (engine !== "kokoro" || filteredKokoroVoices.length === 0) return;
     if (!filteredKokoroVoices.some((candidate) => candidate.id === voice)) setVoice(filteredKokoroVoices[0].id);
   }, [engine, language, filteredKokoroVoices, voice]);
+
+  const preparePiperVoice = async () => {
+    if (!voice) return;
+    setPreparingVoice(true); setError("");
+    try {
+      await api("/api/tts/piper/voices/load", { method: "POST", body: JSON.stringify({ voice }) });
+      const response = await api<{ data: { voices: typeof piperVoices } }>("/api/tts/piper/voices");
+      setPiperVoices(response.data.voices);
+      setModelReady(response.data.voices.some((candidate) => candidate.id === voice && candidate.installed));
+    } catch (caught) {
+      setError(caught instanceof ApiError && caught.hint ? `${caught.message} — ${caught.hint}` : caught instanceof Error ? caught.message : "Não foi possível preparar a voz.");
+    } finally { setPreparingVoice(false); }
+  };
 
   const generate = async () => {
     setBusy(true); setError("");
@@ -79,7 +110,11 @@ function LocalTtsLab({ engine }: { engine: "piper" | "kokoro" }) {
       <Field label="Texto"><Textarea rows={5} value={text} onChange={(event) => setText(event.target.value)} /></Field>
       <div className="form-grid">
         {engine === "piper" ? (
-          <Field label="Voz/modelo configurado"><Input value={voice} readOnly /></Field>
+          <Field label="Voz Piper" hint="Catálogo oficial pt_BR; cada voz é baixada somente quando você a prepara.">
+            <Select value={voice} onChange={(event) => setVoice(event.target.value)} disabled={piperVoices.length === 0}>
+              {piperVoices.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name} · {candidate.quality} · {candidate.installed ? "instalada" : "não instalada"}</option>)}
+            </Select>
+          </Field>
         ) : (
           <Field label="Voz Kokoro" hint={`${filteredKokoroVoices.length} voz(es) disponíveis para o idioma selecionado`}>
             <Select value={voice} onChange={(event) => setVoice(event.target.value)} disabled={filteredKokoroVoices.length === 0}>
@@ -92,6 +127,14 @@ function LocalTtsLab({ engine }: { engine: "piper" | "kokoro" }) {
         ) : <Range label="Velocidade" value={speed} min={0.6} max={1.6} step={0.1} onChange={setSpeed} />}
       </div>
       {catalogError && <StatusMessage title="Catálogo de vozes indisponível">{catalogError}</StatusMessage>}
+      {engine === "piper" && voice && (
+        <div className={`model-load-control ${modelReady ? "loaded" : "pending"}`}>
+          {modelReady ? <CheckCircle2 size={18} /> : <Download size={18} />}
+          <div><strong>{modelReady ? "Voz Piper pronta no disco" : "Esta voz ainda não foi baixada"}</strong><p>{modelReady ? "A síntese abre o binário somente durante este teste; nenhum modelo fica na memória." : "O download usa o catálogo oficial e não inicia outro motor."}</p></div>
+          {!modelReady && <Button onClick={preparePiperVoice} busy={preparingVoice}><Download size={15} /> Preparar voz</Button>}
+        </div>
+      )}
+      <LongOperationNotice active={preparingVoice} title="Baixando a voz Piper selecionada" detail="O arquivo ONNX e sua configuração são salvos no diretório local do Voice Lab." />
       {engine === "kokoro" && <ModelLoadControl engine="kokoro" label="Kokoro-82M" options={{ language }} onReady={setModelReady} />}
       <div className="action-row">
         <Button onClick={generate} busy={busy} disabled={!modelReady || (engine === "kokoro" && !voice)}><AudioWaveform size={16} /> Gerar com {engine === "piper" ? "Piper" : "Kokoro"}</Button>
@@ -114,29 +157,139 @@ export const PiperLab = () => <LocalTtsLab engine="piper" />;
 export const KokoroLab = () => <LocalTtsLab engine="kokoro" />;
 
 type VoiceMode = "xtts" | "openvoice" | "rvc";
+type RvcModel = { id: string; name: string; size: number };
+type PiperVoice = { id: string; name: string; quality: string; language: string; installed: boolean };
 
 function VoiceTransformLab({ mode }: { mode: VoiceMode }) {
   const lab = labById[mode];
   const [file, setFile] = useState<File>();
   const [duration, setDuration] = useState<number>();
   const [text, setText] = useState("Este teste utiliza uma voz com autorização explícita.");
-  const [language, setLanguage] = useState(mode === "openvoice" ? "en" : "pt");
+  const [language, setLanguage] = useState(mode === "openvoice" ? "pt-br" : "pt");
+  const [piperVoices, setPiperVoices] = useState<PiperVoice[]>([]);
+  const [baseVoice, setBaseVoice] = useState("pt_BR-faber-medium");
+  const [preparingBaseVoice, setPreparingBaseVoice] = useState(false);
   const [rhythm, setRhythm] = useState(1);
+  const [transpose, setTranspose] = useState(0);
+  const [f0Method, setF0Method] = useState("rmvpe");
   const [consent, setConsent] = useState(false);
+  const [trustedCheckpoint, setTrustedCheckpoint] = useState(false);
+  const [rvcModels, setRvcModels] = useState<RvcModel[]>([]);
+  const [selectedRvcModel, setSelectedRvcModel] = useState("");
+  const [rvcCheckpoint, setRvcCheckpoint] = useState<File>();
+  const [importingRvc, setImportingRvc] = useState(false);
   const [xttsLicenseAccepted, setXttsLicenseAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [modelReady, setModelReady] = useState(mode === "rvc");
+  const [modelReady, setModelReady] = useState(false);
   const [error, setError] = useState("");
   const [audioUrl, setAudioUrl] = useState("");
   const [elapsed, setElapsed] = useState<number>();
+  const recordedDuration = useRef<{ file: File; seconds: number } | undefined>(undefined);
   const { addResult } = useExperiments();
 
   useEffect(() => {
-    if (!file) return;
+    if (!file) { setDuration(undefined); return; }
+    if (recordedDuration.current?.file === file && Number.isFinite(recordedDuration.current.seconds)) {
+      setDuration(recordedDuration.current.seconds);
+      return;
+    }
+    let cancelled = false;
     const url = URL.createObjectURL(file);
     const audio = new Audio(url);
-    audio.onloadedmetadata = () => { setDuration(audio.duration); URL.revokeObjectURL(url); };
+    const finish = (nextDuration?: number) => {
+      if (!cancelled) setDuration(nextDuration && Number.isFinite(nextDuration) && nextDuration > 0 ? nextDuration : undefined);
+      URL.revokeObjectURL(url);
+    };
+    audio.onloadedmetadata = async () => {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) { finish(audio.duration); return; }
+      const context = new AudioContext();
+      try {
+        const decoded = await context.decodeAudioData(await file.arrayBuffer());
+        finish(decoded.duration);
+      } catch {
+        finish();
+        if (!cancelled) setError("O navegador não informou a duração deste arquivo; o backend ainda validará o áudio antes da geração.");
+      } finally {
+        if (context.state !== "closed") await context.close();
+      }
+    };
+    audio.onerror = () => { finish(); if (!cancelled) setError("Não foi possível ler a duração do áudio selecionado."); };
+    return () => { cancelled = true; audio.src = ""; URL.revokeObjectURL(url); };
   }, [file]);
+
+  const selectAudioFile = (nextFile?: File) => {
+    recordedDuration.current = undefined;
+    setDuration(undefined);
+    setFile(nextFile);
+  };
+
+  const useRecordedAudio = (nextFile: File, seconds: number) => {
+    recordedDuration.current = { file: nextFile, seconds };
+    setDuration(seconds);
+    setFile(nextFile);
+  };
+
+  useEffect(() => {
+    if (mode !== "openvoice") return;
+    const controller = new AbortController();
+    api<{ data: { voices: PiperVoice[] } }>("/api/tts/piper/voices", { signal: controller.signal })
+      .then((response) => {
+        setPiperVoices(response.data.voices);
+        const preferred = response.data.voices.find((voice) => voice.id === baseVoice) || response.data.voices[0];
+        if (preferred) setBaseVoice(preferred.id);
+      })
+      .catch((caught) => {
+        if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(caught instanceof Error ? caught.message : "Não foi possível consultar as vozes PT-BR do Piper.");
+      });
+    return () => controller.abort();
+  }, [mode]);
+
+  const baseVoiceReady = piperVoices.some((voice) => voice.id === baseVoice && voice.installed);
+
+  const prepareOpenVoicePiper = async () => {
+    setPreparingBaseVoice(true); setError("");
+    try {
+      await api("/api/tts/piper/voices/load", { method: "POST", body: JSON.stringify({ voice: baseVoice }) });
+      const response = await api<{ data: { voices: PiperVoice[] } }>("/api/tts/piper/voices");
+      setPiperVoices(response.data.voices);
+    } catch (caught) {
+      setError(caught instanceof ApiError && caught.hint ? `${caught.message} — ${caught.hint}` : caught instanceof Error ? caught.message : "Não foi possível preparar a voz-base PT-BR.");
+    } finally { setPreparingBaseVoice(false); }
+  };
+
+  const refreshRvcModels = useCallback(async () => {
+    const response = await api<{ data: { models: RvcModel[] } }>("/api/voice-conversion/rvc/models");
+    setRvcModels(response.data.models);
+    setSelectedRvcModel((current) => response.data.models.some((candidate) => candidate.id === current) ? current : response.data.models[0]?.id || "");
+  }, []);
+
+  useEffect(() => {
+    if (mode !== "rvc") return;
+    refreshRvcModels().catch((caught) => setError(caught instanceof Error ? caught.message : "Não foi possível consultar os modelos RVC."));
+  }, [mode, refreshRvcModels]);
+
+  useEffect(() => {
+    if (mode === "rvc") setModelReady(Boolean(selectedRvcModel));
+  }, [mode, selectedRvcModel]);
+
+  const durationValid = mode !== "xtts" || duration === undefined || (Number.isFinite(duration) && duration >= 6 && duration <= 15.25);
+
+  const importRvcCheckpoint = async () => {
+    if (!rvcCheckpoint || !consent || !trustedCheckpoint) return;
+    setImportingRvc(true); setError("");
+    const form = new FormData();
+    form.append("model", rvcCheckpoint);
+    form.append("consentConfirmed", String(consent));
+    form.append("trustedCheckpointConfirmed", String(trustedCheckpoint));
+    try {
+      const imported = await api<{ data: RvcModel }>("/api/voice-conversion/rvc/models", { method: "POST", body: form });
+      await refreshRvcModels();
+      setSelectedRvcModel(imported.data.id);
+      setRvcCheckpoint(undefined);
+    } catch (caught) {
+      setError(caught instanceof ApiError && caught.hint ? `${caught.message} — ${caught.hint}` : caught instanceof Error ? caught.message : "Falha ao importar checkpoint RVC.");
+    } finally { setImportingRvc(false); }
+  };
 
   const run = async () => {
     if (!file || !consent) return;
@@ -148,9 +301,13 @@ function VoiceTransformLab({ mode }: { mode: VoiceMode }) {
     form.append("consentConfirmed", String(consent));
     form.append("language", language);
     if (mode !== "rvc") form.append("text", text);
-    form.append("emotion", "neutro");
     form.append("rhythm", String(rhythm));
-    form.append("accent", "padrão");
+    if (mode === "openvoice") form.append("baseVoice", baseVoice);
+    if (mode === "rvc") {
+      form.append("model", selectedRvcModel);
+      form.append("transpose", String(transpose));
+      form.append("f0Method", f0Method);
+    }
     try {
       const blob = await api<Blob>(endpoint, { method: "POST", body: form });
       const measured = Math.round(performance.now() - started); setElapsed(measured);
@@ -169,13 +326,14 @@ function VoiceTransformLab({ mode }: { mode: VoiceMode }) {
   const deleteSamples = async () => {
     try {
       await api("/api/voice-samples?consentConfirmed=true", { method: "DELETE" });
-      setFile(undefined); setAudioUrl(""); setError("");
+      recordedDuration.current = undefined; setDuration(undefined); setFile(undefined); setAudioUrl(""); setError("");
     } catch (error) { setError(error instanceof Error ? error.message : "Não foi possível apagar."); }
   };
 
   return (
     <LabFrame lab={lab}>
       <div className="consent-banner"><ShieldCheck size={24} /><div><strong>Use apenas sua própria voz ou voz com autorização explícita.</strong><p>Não há presets de pessoas públicas. A amostra não deve ser enviada a serviços externos.</p></div></div>
+      <Toggle checked={consent} onChange={setConsent} label="Confirmo que a voz é minha ou tenho autorização explícita para usá-la." />
       {mode === "xtts" && (
         <div className="license-confirmation">
           <Toggle checked={xttsLicenseAccepted} onChange={setXttsLicenseAccepted} label="Li e aceito a licença CPML aplicável ao checkpoint XTTS-v2." />
@@ -185,30 +343,69 @@ function VoiceTransformLab({ mode }: { mode: VoiceMode }) {
       {mode !== "rvc" && (
         <ModelLoadControl
           engine={mode}
-          label={mode === "xtts" ? "XTTS-v2" : "OpenVoice V2 + MeloTTS"}
-          options={mode === "openvoice" ? { language } : { acceptCoquiLicense: xttsLicenseAccepted }}
-          disabled={mode === "xtts" && !xttsLicenseAccepted}
-          disabledReason={mode === "xtts" && !xttsLicenseAccepted ? "O checkpoint XTTS-v2 usa a Coqui Public Model License. Leia e aceite os termos antes que o bridge faça o download." : undefined}
+          label={mode === "xtts" ? "XTTS-v2" : language === "pt-br" ? "OpenVoice V2 + Piper PT-BR" : "OpenVoice V2 + MeloTTS"}
+          options={mode === "openvoice" ? { language, baseVoice } : { acceptCoquiLicense: xttsLicenseAccepted }}
+          disabled={(mode === "xtts" && !xttsLicenseAccepted) || (mode === "openvoice" && language === "pt-br" && !baseVoiceReady)}
+          disabledReason={mode === "xtts" && !xttsLicenseAccepted
+            ? "O checkpoint XTTS-v2 usa a Coqui Public Model License. Leia e aceite os termos antes que o bridge faça o download."
+            : mode === "openvoice" && language === "pt-br" && !baseVoiceReady
+              ? "Prepare primeiro a voz-base Piper PT-BR selecionada. Só então o OpenVoice carregará o conversor de timbre."
+              : undefined}
           onReady={setModelReady}
         />
       )}
-      <AudioInputGuide kind={mode === "rvc" ? "input" : "reference"} onRecorded={setFile} />
+      {mode === "openvoice" && language === "pt-br" && (
+        <div className="openvoice-portuguese-source">
+          <div>
+            <strong>Pacote português: Piper PT-BR → OpenVoice V2</strong>
+            <p>O Piper gera a pronúncia em português; o OpenVoice converte essa fala para o timbre autorizado da referência. O MeloTTS oficial não possui português nativo.</p>
+          </div>
+          <Field label="Voz-base em português" hint="Ela define pronúncia e ritmo antes da conversão de timbre.">
+            <Select value={baseVoice} onChange={(event) => { setBaseVoice(event.target.value); setModelReady(false); }} disabled={piperVoices.length === 0}>
+              {piperVoices.map((voice) => <option value={voice.id} key={voice.id}>{voice.name} · {voice.quality} · {voice.installed ? "instalada" : "não instalada"}</option>)}
+            </Select>
+          </Field>
+          {!baseVoiceReady && <Button variant="secondary" onClick={prepareOpenVoicePiper} busy={preparingBaseVoice} disabled={!baseVoice}><Download size={15} /> Preparar voz PT-BR</Button>}
+        </div>
+      )}
+      {mode === "rvc" && (
+        <div className="rvc-model-library">
+          <div>
+            <strong>Biblioteca local de checkpoints autorizados</strong>
+            <p>Um checkpoint .pth representa o timbre treinado, não um idioma. Para português, fale em PT-BR no áudio de entrada: o RVC preserva o conteúdo e converte o timbre.</p>
+            <p>Não existe um checkpoint neutro universal. O caminho seguro é gravar sua própria voz (ou uma voz autorizada), treiná-la no projeto oficial RVC e exportar o .pth. Evite coleções de vozes reais de terceiros: além da autorização, arquivos PyTorch devem vir de fonte confiável.</p>
+            <a className="inline-doc-link" href="https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI/blob/master/docs/en/README.en.md" target="_blank" rel="noreferrer"><ExternalLink size={14} /> Abrir guia oficial de instalação e treinamento RVC</a>
+          </div>
+          <div className="form-grid">
+            <Field label="Checkpoint RVC disponível">
+              <Select value={selectedRvcModel} onChange={(event) => setSelectedRvcModel(event.target.value)} disabled={rvcModels.length === 0}>
+                {rvcModels.length === 0 && <option value="">Nenhum checkpoint importado</option>}
+                {rvcModels.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name} · {Math.ceil(candidate.size / 1024 / 1024)} MB</option>)}
+              </Select>
+            </Field>
+            <Field label="Importar checkpoint próprio/autorizado" hint="Arquivo .pth local; não é enviado a serviços externos.">
+              <Input type="file" accept=".pth,application/octet-stream" onChange={(event) => setRvcCheckpoint(event.target.files?.[0])} />
+            </Field>
+          </div>
+          <Toggle checked={trustedCheckpoint} onChange={setTrustedCheckpoint} label="Confirmo que este checkpoint é próprio/autorizado e vem de uma origem em que confio." />
+          <Button variant="secondary" onClick={importRvcCheckpoint} busy={importingRvc} disabled={!rvcCheckpoint || !consent || !trustedCheckpoint}><Upload size={15} /> Importar para a biblioteca local</Button>
+        </div>
+      )}
+      <AudioInputGuide kind={mode === "rvc" ? "conversion" : "reference"} onRecorded={useRecordedAudio} minDuration={mode === "xtts" ? 6 : 0} maxDuration={mode === "xtts" ? 15 : 60} />
       <div className="voice-upload">
         <FileAudio size={32} />
         <div><strong>{file?.name || (mode === "rvc" ? "Áudio de entrada" : "Referência de voz")}</strong><p>{file ? `${Math.ceil(file.size / 1024)} KB · ${duration ? `${duration.toFixed(1)} s` : "lendo duração"} · ruído não analisado` : "WAV, MP3, M4A ou WebM com fala clara"}</p></div>
-        <Input type="file" accept="audio/*" onChange={(event) => setFile(event.target.files?.[0])} />
+        <Input type="file" accept="audio/*" onChange={(event) => selectAudioFile(event.target.files?.[0])} />
       </div>
+      {mode === "xtts" && duration !== undefined && !durationValid && <StatusMessage title="Duração incompatível">A referência XTTS-v2 deve ter entre 6 e 15 segundos. A amostra atual tem {duration.toFixed(1)} s.</StatusMessage>}
       {mode !== "rvc" && <Field label="Texto de saída"><Textarea rows={4} value={text} onChange={(event) => setText(event.target.value)} /></Field>}
-      <div className="form-grid">
-        <Field label="Idioma"><Select value={language} onChange={(event) => setLanguage(event.target.value)}>
-          {mode === "openvoice" ? <><option value="en">English</option><option value="es">Español</option><option value="fr">Français</option><option value="zh">中文</option><option value="ja">日本語</option><option value="ko">한국어</option></> : <><option value="pt">Português</option><option value="en">English</option><option value="es">Español</option></>}
-        </Select></Field>
-        <Field label={mode === "rvc" ? "Modelo RVC" : mode === "openvoice" ? "Estilo disponível" : "Voz/modelo"}><Input value={mode === "openvoice" ? "Timbre da referência + ritmo" : "configurado no backend"} readOnly /></Field>
-      </div>
-      {mode === "openvoice" && <><Range label="Ritmo" value={rhythm} min={0.7} max={1.4} step={0.1} onChange={setRhythm} /><p className="footnote">Este adapter aplica somente o ritmo do MeloTTS e o timbre extraído da referência. Emoção e sotaque não são exibidos porque este caminho não os implementa.</p></>}
-      <Toggle checked={consent} onChange={setConsent} label="Confirmo que a voz é minha ou tenho autorização explícita para usá-la." />
+      {mode !== "rvc" && <Field label="Idioma"><Select value={language} onChange={(event) => setLanguage(event.target.value)}>
+        {mode === "openvoice" ? <><option value="pt-br">Português do Brasil · Piper + OpenVoice</option><option value="en">English</option><option value="es">Español</option><option value="fr">Français</option><option value="zh">中文</option><option value="ja">日本語</option><option value="ko">한국어</option></> : <><option value="pt">Português</option><option value="en">English</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="it">Italiano</option><option value="pl">Polski</option><option value="tr">Türkçe</option><option value="ru">Русский</option><option value="nl">Nederlands</option><option value="cs">Čeština</option><option value="ar">العربية</option><option value="zh-cn">中文</option><option value="hu">Magyar</option><option value="ko">한국어</option><option value="ja">日本語</option><option value="hi">हिन्दी</option></>}
+      </Select></Field>}
+      {mode === "openvoice" && <><Range label="Ritmo" value={rhythm} min={0.7} max={1.4} step={0.1} onChange={setRhythm} /><p className="footnote">Em PT-BR, o ritmo é aplicado pelo Piper antes da conversão de timbre. Nos demais idiomas, ele é aplicado pelo MeloTTS. Emoção e sotaque não aparecem porque este adapter não implementa esses controles.</p></>}
+      {mode === "rvc" && <div className="form-grid"><Range label="Transposição (semitons)" value={transpose} min={-12} max={12} step={1} onChange={setTranspose} /><Field label="Extração de pitch"><Select value={f0Method} onChange={(event) => setF0Method(event.target.value)}><option value="rmvpe">RMVPE · recomendado</option><option value="harvest">Harvest</option><option value="dio">DIO</option><option value="pm">Parselmouth</option></Select></Field></div>}
       <div className="action-row">
-        <Button onClick={run} busy={busy} disabled={!file || !consent || !modelReady}><Sparkles size={16} /> {mode === "rvc" ? "Converter voz" : mode === "xtts" ? "Gerar voz clonada" : "Gerar timbre/estilo"}</Button>
+        <Button onClick={run} busy={busy} disabled={!file || !consent || !modelReady || !durationValid}><Sparkles size={16} /> {mode === "rvc" ? "Converter voz" : mode === "xtts" ? "Gerar voz clonada" : "Gerar timbre/estilo"}</Button>
         <Button variant="secondary" onClick={deleteSamples}><Eraser size={15} /> Apagar amostras</Button>
         <Metric label="Geração" value={elapsed ? `${elapsed} ms` : "—"} />
       </div>

@@ -1,11 +1,19 @@
 import { spawn } from "node:child_process";
-import { closeSync, mkdirSync, openSync } from "node:fs";
+import { mkdirSync, writeSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runtimeDir } from "./runtime-manifest.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const companionEntry = join(root, "scripts", "companion.mjs");
+const detachEntry = join(root, "scripts", "companion-detach.mjs");
+
+function printLine(message) {
+  try {
+    writeSync(process.stdout.fd, `${message}\n`);
+  } catch {
+    console.log(message);
+  }
+}
 
 function companionAddress() {
   const port = Number(process.env.PORT || 3333);
@@ -22,51 +30,41 @@ async function online(url, timeout = 1_000) {
   }
 }
 
-function processAlive(pid) {
-  if (!Number.isInteger(pid)) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function startCompanionInBackground(forwardedArgs = []) {
   const { url } = companionAddress();
   if (await online(`${url}/`)) {
-    console.log(`O Voice Lab já está inicializado em ${url}`);
+    printLine(`O Voice Lab já está inicializado em ${url}`);
     return;
   }
 
+  printLine(`Voice Lab Companion: ${url}`);
+  printLine("Inicializando e validando os bridges instalados; nenhum modelo pesado será carregado.");
+
   mkdirSync(runtimeDir(), { recursive: true });
   const logPath = join(runtimeDir(), "companion.log");
-  const log = openSync(logPath, "w");
-  const child = spawn(process.execPath, [companionEntry, ...forwardedArgs], {
-    cwd: root,
-    detached: true,
-    env: { ...process.env, VOICE_LAB_BACKGROUND: "1" },
-    windowsHide: true,
-    stdio: ["ignore", log, log],
+  await new Promise((resolvePromise, reject) => {
+    const launcher = spawn(process.execPath, [detachEntry, ...forwardedArgs], {
+      cwd: root,
+      env: { ...process.env, VOICE_LAB_BACKGROUND: "1" },
+      windowsHide: true,
+      stdio: "ignore",
+    });
+    launcher.once("error", reject);
+    launcher.once("exit", (code) => code === 0
+      ? resolvePromise()
+      : reject(new Error(`O launcher interno encerrou com código ${code}.`)));
   });
-  child.unref();
-  closeSync(log);
 
-  console.log("Inicializando o Companion e validando os bridges instalados...");
   for (let attempt = 0; attempt < 120; attempt += 1) {
     if (await online(`${url}/`)) {
-      console.log(`Voice Lab inicializado: ${url}`);
-      console.log("O serviço permanece ativo em segundo plano; este terminal pode ser fechado.");
-      console.log("Use `voice-lab stop` para encerrar e `voice-lab status` para verificar.");
-      console.log(`Logs desta inicialização: ${logPath}`);
+      printLine(`Voice Lab inicializado: ${url}`);
+      printLine("O serviço permanece ativo em segundo plano; este terminal pode ser fechado.");
+      printLine("Use `voice-lab stop` para encerrar e `voice-lab status` para verificar.");
+      printLine(`Logs desta inicialização: ${logPath}`);
       return;
-    }
-    if (!processAlive(child.pid)) {
-      throw new Error(`O Companion encerrou durante a inicialização. Consulte ${logPath}`);
     }
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
   }
 
-  if (processAlive(child.pid)) process.kill(child.pid, "SIGTERM");
   throw new Error(`Tempo esgotado aguardando ${url}. Consulte ${logPath}`);
 }
