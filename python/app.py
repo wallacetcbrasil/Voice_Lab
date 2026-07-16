@@ -43,6 +43,12 @@ OPENVOICE_LOADED_LANGUAGES: set[str] = set()
 
 OPENVOICE_REPO_ID = "myshell-ai/OpenVoiceV2"
 OPENVOICE_REVISION = "fd981100305a0e4291f93a9ad169c6d9f7bed54a"
+PIPER_PT_BR_VOICES = {
+    "pt_BR-cadu-medium",
+    "pt_BR-edresson-low",
+    "pt_BR-faber-medium",
+    "pt_BR-jeff-medium",
+}
 
 
 @app.middleware("http")
@@ -190,6 +196,25 @@ def _openvoice_paths() -> dict[str, Any]:
     }
 
 
+def _piper_voice_paths(voice: str) -> tuple[Path, Path]:
+    if voice not in PIPER_PT_BR_VOICES:
+        raise HTTPException(
+            422,
+            {"code": "PIPER_VOICE_INVALID", "message": "Selecione uma voz PT-BR reconhecida no catálogo do Piper."},
+        )
+    model = voice_lab_home() / "models" / "piper" / f"{voice}.onnx"
+    return model, Path(f"{model}.json")
+
+
+def _piper_executable() -> Path:
+    configured = os.getenv("PIPER_BIN_PATH")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    executable = "piper.exe" if os.name == "nt" else "piper"
+    subdirectory = "Scripts" if os.name == "nt" else "bin"
+    return voice_lab_home() / "envs" / "piper" / subdirectory / executable
+
+
 def _rvc_models() -> list[Path]:
     configured = os.getenv("RVC_MODEL_PATH")
     if configured and Path(configured).expanduser().is_file():
@@ -214,7 +239,19 @@ def _model_status(name: str, options: Optional[dict[str, Any]] = None) -> dict[s
         present = all(paths[key].is_file() for key in ("converter_config", "converter_checkpoint")) and paths[
             "speaker_embeddings"
         ].is_dir()
-        language = str(options.get("language") or "en").lower()
+        language = str(options.get("language") or "pt-br").lower()
+        if language == "pt-br":
+            base_voice = str(options.get("baseVoice") or "pt_BR-faber-medium")
+            model, config = _piper_voice_paths(base_voice)
+            piper_ready = _piper_executable().is_file() and model.is_file() and config.is_file()
+            loaded = bool(openvoice_converter.cache_info().currsize) and piper_ready
+            return {
+                "configured": present and piper_ready,
+                "loaded": loaded,
+                "path": str(paths["root"]),
+                "language": "PT-BR",
+                "baseVoice": base_voice,
+            }
         language_code = {"en": "EN", "es": "ES", "fr": "FR", "zh": "ZH", "ja": "JP", "ko": "KR"}.get(language, "EN")
         loaded = bool(openvoice_converter.cache_info().currsize) and language_code in OPENVOICE_LOADED_LANGUAGES
         return {"configured": present, "loaded": loaded, "path": str(paths["root"]), "language": language_code}
@@ -349,14 +386,25 @@ def load_model(request: ModelControlRequest):
         elif engine == "openvoice":
             MODEL_LOAD_STATE["phase"] = "downloading-checkpoints"
             ensure_openvoice_checkpoints()
-            MODEL_LOAD_STATE["phase"] = "downloading-language-data"
-            ensure_openvoice_nltk_data()
             MODEL_LOAD_STATE["phase"] = "loading-converter"
             openvoice_converter()
-            language = str(request.options.get("language") or "en").lower()
+            language = str(request.options.get("language") or "pt-br").lower()
+            if language == "pt-br":
+                base_voice = str(request.options.get("baseVoice") or "pt_BR-faber-medium")
+                model, config = _piper_voice_paths(base_voice)
+                if not _piper_executable().is_file() or not model.is_file() or not config.is_file():
+                    model_missing(
+                        "OpenVoice V2 em português",
+                        f"a voz-base Piper '{base_voice}' ainda não está preparada.",
+                        "Selecione e prepare uma voz PT-BR no próprio laboratório antes de carregar o OpenVoice.",
+                    )
+            else:
+                MODEL_LOAD_STATE["phase"] = "downloading-language-data"
+                ensure_openvoice_nltk_data()
             language_code = {"en": "EN", "es": "ES", "fr": "FR", "zh": "ZH", "ja": "JP", "ko": "KR"}.get(language, "EN")
-            MODEL_LOAD_STATE["phase"] = "loading-melotts"
-            melo_tts(language_code)
+            if language != "pt-br":
+                MODEL_LOAD_STATE["phase"] = "loading-melotts"
+                melo_tts(language_code)
         elif engine == "transformers":
             voxtral_components()
         MODEL_LOAD_STATE.update({"state": "loaded", "phase": "ready", "completedAt": time.time()})
@@ -719,11 +767,51 @@ def melo_tts(language: str):
     return model
 
 
+def generate_piper_source(text: str, voice: str, rhythm: float, output_path: str) -> None:
+    executable = _piper_executable()
+    model, config = _piper_voice_paths(voice)
+    if not executable.is_file():
+        not_ready("Piper", "Execute o comando único de instalação na tela Instalação e Diagnóstico.")
+    if not model.is_file() or not config.is_file():
+        model_missing(
+            "Piper PT-BR",
+            f"a voz-base '{voice}' ainda não foi baixada.",
+            "Prepare a voz no seletor do laboratório OpenVoice antes de carregar o modelo.",
+        )
+    process = subprocess.run(
+        [
+            str(executable),
+            "-m",
+            str(model),
+            "-f",
+            output_path,
+            "--length-scale",
+            str(1 / rhythm),
+            "--",
+            text[:5000],
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    if process.returncode != 0 or not Path(output_path).is_file() or Path(output_path).stat().st_size == 0:
+        raise HTTPException(
+            500,
+            {
+                "code": "OPENVOICE_PIPER_SOURCE_ERROR",
+                "message": "O Piper não conseguiu gerar a fala-base em português.",
+                "hint": (process.stderr or process.stdout or "Verifique a voz PT-BR preparada.")[-1000:],
+            },
+        )
+
+
 @app.post("/api/voice-clone/openvoice")
 async def clone_openvoice(
     audio: UploadFile = File(...),
     text: str = Form(...),
-    language: str = Form("en"),
+    language: str = Form("pt-br"),
+    baseVoice: str = Form("pt_BR-faber-medium"),
     emotion: str = Form("neutro"),
     rhythm: float = Form(1.0),
     accent: str = Form("padrão"),
@@ -734,14 +822,15 @@ async def clone_openvoice(
         raise HTTPException(403, {"code": "VOICE_CONSENT_REQUIRED", "message": "Use apenas vozes próprias ou autorizadas."})
     if not dependency_available("openvoice"):
         not_ready("OpenVoice V2", "Instale OpenVoice e MeloTTS pela tela Instalação e Diagnóstico.")
-    language_code = {"en": "EN", "es": "ES", "fr": "FR", "zh": "ZH", "ja": "JP", "ko": "KR"}.get(language.lower())
-    if not language_code:
+    language_normalized = language.lower()
+    language_code = {"en": "EN", "es": "ES", "fr": "FR", "zh": "ZH", "ja": "JP", "ko": "KR"}.get(language_normalized)
+    if language_normalized != "pt-br" and not language_code:
         raise HTTPException(
             422,
             {
                 "code": "OPENVOICE_LANGUAGE_UNSUPPORTED",
-                "message": "O checkpoint oficial OpenVoice V2 não fornece voz-base em português.",
-                "hint": "Neste adapter oficial, selecione inglês ou espanhol. XTTS-v2 é a opção do laboratório para texto em português.",
+                "message": "O idioma selecionado não possui uma voz-base implementada neste adapter.",
+                "hint": "Use Português do Brasil, inglês, espanhol, francês, chinês, japonês ou coreano.",
             },
         )
     if emotion.lower() not in {"neutro", "neutral"} or accent.lower() not in {"padrão", "padrao", "default"}:
@@ -762,28 +851,36 @@ async def clone_openvoice(
     ) as output:
         source_path, output_path = source.name, output.name
     try:
-        import torch
         from openvoice import se_extractor
 
         paths = require_openvoice_checkpoints()
-        ensure_openvoice_nltk_data()
         converter = openvoice_converter()
         target_se, _audio_name = se_extractor.get_se(reference_path, converter, vad=True)
-        model = melo_tts(language_code)
-        speaker_ids = dict(model.hps.data.spk2id)
-        if not speaker_ids:
-            raise RuntimeError(f"MeloTTS não forneceu speakers para {language_code}.")
-        speaker_key, speaker_id = next(iter(speaker_ids.items()))
-        embedding_name = speaker_key.lower().replace("_", "-") + ".pth"
-        source_embedding = paths["speaker_embeddings"] / embedding_name
-        if not source_embedding.is_file():
-            model_missing(
-                "OpenVoice V2",
-                f"embedding da voz-base '{embedding_name}' não encontrado.",
-                f"Verifique o pacote checkpoints_v2 em {paths['root']}.",
-            )
-        source_se = torch.load(str(source_embedding), map_location=os.getenv("OPENVOICE_DEVICE", "cpu"), weights_only=True)
-        model.tts_to_file(text[:5000], speaker_id, source_path, speed=rhythm)
+        if language_normalized == "pt-br":
+            generate_piper_source(text, baseVoice, rhythm, source_path)
+            # A fala-base é recém-gerada, limpa e pode ser curta. Os dois splitters
+            # auxiliares do OpenVoice descartam clipes curtos ou carregam Whisper;
+            # o conversor oferece a extração direta necessária para este WAV local.
+            source_se = converter.extract_se([source_path])
+        else:
+            import torch
+
+            ensure_openvoice_nltk_data()
+            model = melo_tts(language_code)
+            speaker_ids = dict(model.hps.data.spk2id)
+            if not speaker_ids:
+                raise RuntimeError(f"MeloTTS não forneceu speakers para {language_code}.")
+            speaker_key, speaker_id = next(iter(speaker_ids.items()))
+            embedding_name = speaker_key.lower().replace("_", "-") + ".pth"
+            source_embedding = paths["speaker_embeddings"] / embedding_name
+            if not source_embedding.is_file():
+                model_missing(
+                    "OpenVoice V2",
+                    f"embedding da voz-base '{embedding_name}' não encontrado.",
+                    f"Verifique o pacote checkpoints_v2 em {paths['root']}.",
+                )
+            source_se = torch.load(str(source_embedding), map_location=os.getenv("OPENVOICE_DEVICE", "cpu"), weights_only=True)
+            model.tts_to_file(text[:5000], speaker_id, source_path, speed=rhythm)
         converter.convert(
             audio_src_path=source_path,
             src_se=source_se,

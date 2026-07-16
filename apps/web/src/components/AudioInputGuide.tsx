@@ -8,8 +8,8 @@ export function AudioInputGuide({
   minDuration = 0,
   maxDuration = 60,
 }: {
-  kind: "reference" | "input";
-  onRecorded: (file: File) => void;
+  kind: "reference" | "input" | "conversion";
+  onRecorded: (file: File, durationSeconds: number) => void;
   minDuration?: number;
   maxDuration?: number;
 }) {
@@ -47,7 +47,10 @@ export function AudioInputGuide({
       nextRecorder.onstop = () => {
         const blob = new Blob(chunks.current, { type: nextRecorder.mimeType || "audio/webm" });
         if (acceptedDuration.current >= minDuration && blob.size > 0) {
-          onRecorded(new File([blob], `voice-lab-${kind}-${Date.now()}.webm`, { type: blob.type }));
+          onRecorded(
+            new File([blob], `voice-lab-${kind}-${Date.now()}.webm`, { type: blob.type }),
+            acceptedDuration.current,
+          );
         }
         media.getTracks().forEach((track) => track.stop());
         clearTimers();
@@ -85,9 +88,11 @@ export function AudioInputGuide({
       <div className="audio-guide-copy">
         {kind === "reference" ? <ShieldCheck /> : <FileAudio />}
         <div>
-          <strong>{kind === "reference" ? "O que é áudio de referência?" : "Que áudio devo enviar?"}</strong>
+          <strong>{kind === "reference" ? "O que é áudio de referência?" : kind === "conversion" ? "Qual áudio será convertido?" : "Que áudio devo enviar?"}</strong>
           {kind === "reference" ? (
             <p>É uma amostra da voz que o modelo deve imitar: grave 6–15 segundos, uma pessoa, voz natural, pouco eco, sem música. Use somente sua voz ou voz autorizada.</p>
+          ) : kind === "conversion" ? (
+            <p>É a fala que terá o timbre convertido. Grave em português ou envie um áudio claro; o RVC preserva as palavras e não cria fala a partir de texto.</p>
           ) : (
             <p>É a pergunta ou som que o modelo deve ouvir e entender. Não serve para clonar timbre. Grave uma frase curta ou envie WAV, MP3, M4A ou WebM.</p>
           )}

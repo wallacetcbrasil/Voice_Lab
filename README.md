@@ -162,8 +162,8 @@ O Voice Lab não distribui presets de terceiros e não carrega pesos durante a i
 | Piper | `pt_BR-faber-medium` | voz ONNX baixada pelo instalador |
 | Kokoro | `hexgrad/Kokoro-82M` | pesos baixados somente na primeira geração |
 | XTTS-v2 | `tts_models/multilingual/multi-dataset/xtts_v2` | exige aceite da licença e voz autorizada |
-| OpenVoice V2 | [`myshell-ai/OpenVoiceV2`](https://huggingface.co/myshell-ai/OpenVoiceV2) | conversor e vozes-base baixados somente ao carregar |
-| RVC | arquivo `.pth` próprio ou autorizado | conversão de fala; não é TTS |
+| OpenVoice V2 | [`myshell-ai/OpenVoiceV2`](https://huggingface.co/myshell-ai/OpenVoiceV2) + Piper PT-BR | em português, Piper gera a fala-base e OpenVoice converte o timbre |
+| RVC | arquivo `.pth` próprio ou autorizado, treinado no projeto oficial | conversão de timbre independente de idioma; não é TTS |
 
 O GGUF de referência aceita entrada de áudio e gera texto; não gera fala nativa. O suporte real pode
 variar por versão do LM Studio/llama.cpp, backend de GPU e metadados do modelo. A interface mede o
@@ -263,19 +263,30 @@ Clonagem de timbre e controle de estilo. O setup instala apenas o runtime. Ao cl
 **Carregar modelo**, o bridge baixa o conversor e as vozes-base do repositório oficial
 [`myshell-ai/OpenVoiceV2`](https://huggingface.co/myshell-ai/OpenVoiceV2), em uma revisão fixada pelo
 projeto, e depois carrega somente o idioma selecionado. Consulte também o
-[guia oficial](https://github.com/myshell-ai/OpenVoice/blob/main/docs/USAGE.md). O checkpoint oficial
-não oferece voz-base em português; para texto em português, use XTTS-v2.
+[guia oficial](https://github.com/myshell-ai/OpenVoice/blob/main/docs/USAGE.md).
+
+O OpenVoice V2/MeloTTS oficial não inclui voz-base portuguesa. O Voice Lab oferece um pacote PT-BR
+real e totalmente local: uma voz Piper selecionável gera primeiro a pronúncia em português e o
+conversor OpenVoice V2 transfere essa fala para o timbre da referência autorizada. O seletor mostra
+Cadu, Edresson, Faber e Jeff; somente a voz escolhida é baixada. Nos idiomas nativos do MeloTTS, o
+fluxo oficial original continua disponível.
 Os recursos linguísticos exigidos pelo MeloTTS/NLTK são verificados e baixados automaticamente no
 primeiro carregamento explícito do OpenVoice; não é necessário executar o downloader do NLTK à mão.
 
 ### RVC
 
 Voice conversion: recebe uma fala gravada e converte seu timbre. Não transforma texto em voz. O
-runtime é instalado, mas o usuário fornece um arquivo `.pth` próprio ou autorizado. O laboratório
+runtime é instalado, mas o usuário fornece um arquivo `.pth` próprio ou autorizado. Esse checkpoint
+é o resultado do treinamento de um timbre; não existe um checkpoint neutro universal. Para obter um,
+grave sua própria voz (ou uma voz autorizada), treine e exporte o `.pth` seguindo a documentação do
+projeto oficial. O RVC é independente de idioma: uma entrada falada em português continua em
+português após a conversão.
+
+O laboratório
 tem uma biblioteca local para importar e selecionar esse checkpoint e oferece apenas controles que
 o adapter realmente encaminha: transposição e método de extração de pitch. Como checkpoints
 PyTorch podem executar código, a importação exige uma confirmação separada de origem confiável.
-Consulte o [repositório oficial](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion).
+Consulte o [repositório e guia de treinamento oficiais](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI/blob/master/docs/en/README.en.md).
 
 > Use somente sua própria voz ou uma voz com autorização explícita. Não há presets para pessoas
 > públicas ou terceiros reais.

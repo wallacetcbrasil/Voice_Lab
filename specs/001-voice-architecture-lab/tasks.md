@@ -125,6 +125,13 @@
 - [x] T061 Add secure local RVC checkpoint import/selection plus real pitch controls
 - [x] T062 Standardize the realtime Base URL control, rebuild from the single Companion command, and run full verification
 
+## Phase 18: Portuguese voice paths and media reliability
+
+- [x] T063 Add a verified Piper PT-BR source path to OpenVoice V2 while preserving native MeloTTS languages
+- [x] T064 Preserve measured browser-recording duration for XTTS and fall back to backend validation for unreliable WebM metadata
+- [x] T065 Repair the Piper readiness layout and add safe official RVC checkpoint acquisition guidance
+- [x] T066 Run full automated, inference, browser, and pull-request verification
+
 ## Dependencies & Execution Order
 
 Setup precedes foundations. US1 and US2 establish the MVP. US3 and US4 depend only on shared
